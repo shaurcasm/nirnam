@@ -1,0 +1,63 @@
+{
+  "name": "@shaurcasm/nirnam",
+  "version": "2.0.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "module": "dist/index.esm.js",
+  "types": "dist/index.d.ts",
+  "unpkg": "dist/index.umd.js",
+  "jsdelivr": "dist/index.umd.js",
+  "exports": {
+    ".": {
+      "import": "./dist/index.esm.js",
+      "require": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "rollup -c",
+    "build:watch": "rollup -c -w",
+    "clean": "rimraf dist",
+    "prebuild": "npm run clean",
+    "test": "jest",
+    "test:coverage": "jest --coverage",
+    "lint": "eslint src --ext .ts",
+    "commit": "git-cz",
+    "commitlint": "commitlint --edit"
+  },
+  "keywords": [
+    "shared-worker",
+    "broadcast-channel",
+    "message-bus",
+    "micro-frontend",
+    "mfe",
+    "pub-sub",
+    "request-reply"
+  ],
+  "author": "Shaurya Singh Pal",
+  "license": "ISC",
+  "description": "A three-layer hybrid message bus for micro-frontend communication using SharedWorker and BroadcastChannel",
+  "devDependencies": {
+    "@commitlint/cli": "^18.0.0",
+    "@commitlint/config-conventional": "^18.0.0",
+    "@rollup/plugin-commonjs": "^25.0.0",
+    "@rollup/plugin-node-resolve": "^15.0.0",
+    "@rollup/plugin-terser": "^0.4.0",
+    "@rollup/plugin-typescript": "^11.0.0",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^24.1.0",
+    "husky": "^9.0.0",
+    "jest": "^30.0.5",
+    "rimraf": "^5.0.0",
+    "rollup": "^4.0.0",
+    "rollup-plugin-dts": "^6.0.0",
+    "ts-jest": "^29.4.0",
+    "typescript": "^5.8.3"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

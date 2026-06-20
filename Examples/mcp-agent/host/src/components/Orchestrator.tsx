@@ -1,11 +1,8 @@
-﻿import React, { useEffect, useRef, useState, useCallback } from "react";
+import React, { useEffect, useRef, useState, useCallback } from "react";
 import { createBus } from "@shaurcasm/nirnam";
 import { NirnamMCPTransport } from "@shaurcasm/nirnam/mcp";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 
-// One bus shared across the entire host page.
-// Module Federation + singleton sharing means this is the SAME SharedWorker
-// process that the OllamaAgent and ScribeAgent remotes connect to.
 const bus = createBus();
 
 type ClientStatus = "connecting" | "ready" | "error";
@@ -18,33 +15,66 @@ interface QAItem {
 
 let qaId = 0;
 
-// ---- hook: create and connect an MCP client to a target agent ---------------
+// ---- hook: connect MCP client only after target agent is in the registry ----
 
-function useMcpClient(
-  ownAgentId: string,
-  targetAgentId: string
-): { client: Client | null; status: ClientStatus; error: string } {
+function useMcpClient(ownAgentId: string, targetAgentId: string) {
+  const [client, setClient] = useState<Client | null>(null);
   const [status, setStatus] = useState<ClientStatus>("connecting");
-  const [error, setError] = useState("");
-  const clientRef = useRef<Client | null>(null);
+  // Tracks the live client so cleanup can close it even after state updates.
+  const activeClientRef = useRef<Client | null>(null);
 
   useEffect(() => {
-    const transport = new NirnamMCPTransport({ agentId: ownAgentId, targetAgentId, bus });
-    const client = new Client({ name: ownAgentId, version: "1.0.0" }, { capabilities: {} });
-    clientRef.current = client;
+    let cancelled = false;
+    let agentUnsub: (() => void) | null = null;
 
-    client
-      .connect(transport)
-      .then(() => setStatus("ready"))
-      .catch((e: Error) => {
-        setStatus("error");
-        setError(e.message);
-      });
+    async function connect() {
+      if (cancelled) return;
+      const transport = new NirnamMCPTransport({ agentId: ownAgentId, targetAgentId, bus });
+      const c = new Client({ name: ownAgentId, version: "1.0.0" }, { capabilities: {} });
+      try {
+        await c.connect(transport);
+      } catch {
+        c.close();
+        if (!cancelled) setStatus("error");
+        return;
+      }
+      if (cancelled) {
+        c.close();
+        return;
+      }
+      activeClientRef.current?.close();
+      activeClientRef.current = c;
+      setClient(c);
+      setStatus("ready");
+    }
 
-    return () => { client.close(); };
+    // Wait for the agent to appear in the SharedWorker registry before connecting.
+    // This prevents the MCP initialize handshake from firing before the server
+    // is subscribed — which would drop the message and stall the client forever.
+    bus.discoverAgents().then(agents => {
+      if (cancelled) return;
+      if (agents.some(a => a.agentId === targetAgentId)) {
+        connect();
+      } else {
+        agentUnsub = bus.onAgentChange(event => {
+          if (event.type === "join" && event.agent.agentId === targetAgentId) {
+            agentUnsub?.();
+            agentUnsub = null;
+            connect();
+          }
+        });
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      agentUnsub?.();
+      activeClientRef.current?.close();
+      activeClientRef.current = null;
+    };
   }, [ownAgentId, targetAgentId]);
 
-  return { client: clientRef.current, status, error };
+  return { client, status };
 }
 
 // ---- sub-components ---------------------------------------------------------
@@ -78,7 +108,7 @@ function DocumentPanel({
       <textarea
         value={text}
         onChange={(e) => setText(e.target.value)}
-        placeholder="# My Document&#10;&#10;Paste markdown here..."
+        placeholder={"# My Document\n\nPaste markdown here..."}
         rows={10}
         style={{ ...inputStyle, fontFamily: "monospace", fontSize: 13 }}
       />
@@ -91,7 +121,7 @@ function DocumentPanel({
           {loading ? "Loading…" : "Load Document"}
         </button>
         {summary && (
-          <span style={{ fontSize: 12, color: "#555", flex: 1 }}>✓ {summary}</span>
+          <span style={{ fontSize: 12, color: "#555", flex: 1 }}>{"✓"} {summary}</span>
         )}
       </div>
     </section>
@@ -131,7 +161,6 @@ function QAPanel({
       {!docLoaded && (
         <p style={{ ...hintStyle, color: "#b45309" }}>Load a document first.</p>
       )}
-
       <div
         style={{
           minHeight: 120,
@@ -145,34 +174,27 @@ function QAPanel({
         }}
       >
         {items.length === 0 && (
-          <p style={{ color: "#aaa", fontSize: 13, margin: 0 }}>
-            Answers will appear here…
-          </p>
+          <p style={{ color: "#aaa", fontSize: 13, margin: 0 }}>Answers will appear here…</p>
         )}
         {items.map((item) => (
           <div key={item.id} style={{ marginBottom: 16 }}>
-            <div style={{ fontWeight: 600, marginBottom: 4, fontSize: 14 }}>
-              Q: {item.question}
-            </div>
+            <div style={{ fontWeight: 600, marginBottom: 4, fontSize: 14 }}>Q: {item.question}</div>
             <div style={{ color: "#374151", fontSize: 13, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
               {item.answer}
             </div>
           </div>
         ))}
         {asking && (
-          <div style={{ color: "#9ca3af", fontSize: 13, fontStyle: "italic" }}>
-            Thinking…
-          </div>
+          <div style={{ color: "#9ca3af", fontSize: 13, fontStyle: "italic" }}>Thinking…</div>
         )}
         <div ref={bottomRef} />
       </div>
-
       <div style={{ display: "flex", gap: 8 }}>
         <input
           value={question}
           onChange={(e) => setQuestion(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && submit()}
-          placeholder="Ask a question about the document…"
+          placeholder={"Ask a question about the document…"}
           disabled={!docLoaded || asking}
           style={{ ...inputStyle, flex: 1, padding: "8px 12px" }}
         />
@@ -269,7 +291,6 @@ export default function Orchestrator() {
   const [qaMarkdown, setQaMarkdown] = useState("");
   const [refreshing, setRefreshing] = useState(false);
 
-  // Extract tool-call result text
   function extractText(result: unknown): string {
     const r = result as { content?: Array<{ type: string; text?: string }> };
     return r?.content?.[0]?.text ?? "";
@@ -285,7 +306,6 @@ export default function Orchestrator() {
           arguments: { content: text },
         });
         const msg = extractText(result);
-        // First line is "Document loaded (N words)." — use it as summary
         setDocSummary(msg.split("\n")[0]);
         setDocLoaded(true);
       } finally {
@@ -293,37 +313,6 @@ export default function Orchestrator() {
       }
     },
     [ollamaClient]
-  );
-
-  const askQuestion = useCallback(
-    async (question: string) => {
-      if (!ollamaClient || !scribeClient) return;
-      setAsking(true);
-      try {
-        // 1. Ask OllamaAgent
-        const answerResult = await ollamaClient.callTool({
-          name: "ask",
-          arguments: { question },
-        });
-        const answer = extractText(answerResult);
-
-        // 2. Record in ScribeAgent
-        await scribeClient.callTool({
-          name: "record",
-          arguments: { question, answer },
-        });
-
-        // 3. Update local display
-        setQaItems((prev) => [...prev, { id: qaId++, question, answer }]);
-
-        // 4. Refresh the markdown document
-        await refreshDoc();
-      } finally {
-        setAsking(false);
-      }
-    },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [ollamaClient, scribeClient]
   );
 
   const refreshDoc = useCallback(async () => {
@@ -337,6 +326,31 @@ export default function Orchestrator() {
     }
   }, [scribeClient]);
 
+  const askQuestion = useCallback(
+    async (question: string) => {
+      if (!ollamaClient || !scribeClient) return;
+      setAsking(true);
+      try {
+        const answerResult = await ollamaClient.callTool({
+          name: "ask",
+          arguments: { question },
+        });
+        const answer = extractText(answerResult);
+
+        await scribeClient.callTool({
+          name: "record",
+          arguments: { question, answer },
+        });
+
+        setQaItems((prev) => [...prev, { id: qaId++, question, answer }]);
+        await refreshDoc();
+      } finally {
+        setAsking(false);
+      }
+    },
+    [ollamaClient, scribeClient, refreshDoc]
+  );
+
   const clearDoc = useCallback(async () => {
     if (!scribeClient) return;
     await scribeClient.callTool({ name: "clear", arguments: {} });
@@ -346,7 +360,6 @@ export default function Orchestrator() {
 
   return (
     <div>
-      {/* Agent connection status */}
       <div
         style={{
           display: "flex",
@@ -360,23 +373,9 @@ export default function Orchestrator() {
         <StatusBadge status={scribeStatus} label="ScribeAgent" />
       </div>
 
-      <DocumentPanel
-        onLoad={loadDocument}
-        loading={loadingDoc}
-        summary={docSummary}
-      />
-      <QAPanel
-        onAsk={askQuestion}
-        items={qaItems}
-        asking={asking}
-        docLoaded={docLoaded}
-      />
-      <DocPanel
-        markdown={qaMarkdown}
-        onRefresh={refreshDoc}
-        onClear={clearDoc}
-        refreshing={refreshing}
-      />
+      <DocumentPanel onLoad={loadDocument} loading={loadingDoc} summary={docSummary} />
+      <QAPanel onAsk={askQuestion} items={qaItems} asking={asking} docLoaded={docLoaded} />
+      <DocPanel markdown={qaMarkdown} onRefresh={refreshDoc} onClear={clearDoc} refreshing={refreshing} />
     </div>
   );
 }

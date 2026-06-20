@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { createBus } from "@shaurcasm/nirnam";
 import { NirnamMCPTransport } from "@shaurcasm/nirnam/mcp";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -17,7 +17,7 @@ interface OllamaMessage {
 
 async function ollamaChat(
   messages: OllamaMessage[],
-  model = "llama3.2"
+  model = "qwen2.5-coder:14b"
 ): Promise<string> {
   const res = await fetch("http://localhost:11434/api/chat", {
     method: "POST",
@@ -76,7 +76,7 @@ async function startServer(onStatus: (s: string) => void) {
       model: z
         .string()
         .optional()
-        .describe("Ollama model to use (default: llama3.2)"),
+        .describe("Ollama model to use (default: qwen2.5-coder:14b)"),
     },
     async ({ question, model }) => {
       if (!documentContent) {
@@ -99,20 +99,20 @@ async function startServer(onStatus: (s: string) => void) {
           },
           { role: "user", content: question },
         ],
-        model ?? "llama3.2"
+        model ?? "qwen2.5-coder:14b"
       );
 
       return { content: [{ type: "text", text: answer }] };
     }
   );
 
+  await server.connect(transport);
+
   bus.register({
     agentId: "ollama-agent",
     capabilities: ["load_document", "ask"],
     metadata: { type: "llm-agent", backend: "ollama" },
   });
-
-  await server.connect(transport);
   onStatus("Ready — waiting for document");
 }
 

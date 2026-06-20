@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { createBus } from "@shaurcasm/nirnam";
 import { NirnamMCPTransport } from "@shaurcasm/nirnam/mcp";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -87,13 +87,13 @@ async function startServer(onStatus: (s: string) => void) {
     }
   );
 
+  await server.connect(transport);
+
   bus.register({
     agentId: "scribe-agent",
     capabilities: ["record", "get_document", "clear"],
     metadata: { type: "scribe" },
   });
-
-  await server.connect(transport);
   onStatus("0 questions recorded");
 }
 

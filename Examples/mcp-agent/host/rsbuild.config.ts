@@ -1,4 +1,4 @@
-﻿import { defineConfig } from "@rsbuild/core";
+import { defineConfig } from "@rsbuild/core";
 import { pluginReact } from "@rsbuild/plugin-react";
 import { pluginModuleFederation } from "@module-federation/rsbuild-plugin";
 
@@ -13,9 +13,9 @@ export default defineConfig({
         scribe_agent: "scribe_agent@http://localhost:3002/mf-manifest.json",
       },
       shared: {
-        react: { singleton: true, requiredVersion: "^18.3.1" },
-        "react-dom": { singleton: true, requiredVersion: "^18.3.1" },
-        "@shaurcasm/nirnam": { singleton: true, requiredVersion: "*" },
+        react: { singleton: true, eager: true, requiredVersion: "^18.3.1" },
+        "react-dom": { singleton: true, eager: true, requiredVersion: "^18.3.1" },
+        "@shaurcasm/nirnam": { singleton: true },
         "@modelcontextprotocol/sdk": { singleton: true, requiredVersion: "^1.0.0" },
       },
     }),

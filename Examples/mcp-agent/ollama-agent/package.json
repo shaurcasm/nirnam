@@ -1,6 +1,7 @@
-﻿{
+{
   "name": "mcp-ollama-agent",
   "version": "1.0.0",
+  "type": "module",
   "private": true,
   "scripts": {
     "dev": "rsbuild dev",

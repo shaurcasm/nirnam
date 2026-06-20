@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Unit tests for NirnamBus.
  *
  * SharedWorker, BroadcastChannel, Blob, and URL.createObjectURL are replaced
@@ -8,10 +8,11 @@
  * so those tests await the returned Promise.
  */
 
-// Hoisted before any import — tells ts-jest to replace the module with a stub.
+// Hoisted before any import -- tells ts-jest to replace the module with a stub.
 jest.mock('../src/worker-source', () => ({ default: '/* mock worker script */' }));
 
 import { createBus, NirnamBus } from '../src/bus';
+import { NirnamErrorCode, NirnamRequestError } from '../src/types';
 import {
   resetWorkerState,
   resetBroadcastChannels,
@@ -19,7 +20,7 @@ import {
   MockBroadcastChannel,
 } from './setup';
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+// --- Helpers -----------------------------------------------------------------
 
 /** Flush Promise microtask queue. Uses Promise.resolve() so fake timers don't block it. */
 const flushPromises = () => Promise.resolve().then(() => Promise.resolve());
@@ -30,12 +31,13 @@ function internals(bus: NirnamBus) {
     worker: { port: { postMessage: jest.Mock; close: jest.Mock } };
     channel: MockBroadcastChannel | null;
     pending: Map<string, unknown>;
+    pendingStreams: Map<string, unknown>;
     handlers: Map<string, Set<unknown>>;
     subscribedTopics: Set<string>;
   };
 }
 
-// ─── Lifecycle ───────────────────────────────────────────────────────────────
+// --- Lifecycle ---------------------------------------------------------------
 
 beforeEach(() => {
   resetWorkerState();
@@ -47,7 +49,7 @@ afterEach(() => {
   jest.useRealTimers();
 });
 
-// ─── subscribe / publish (BROAD) ─────────────────────────────────────────────
+// --- subscribe / publish (BROAD) ---------------------------------------------
 
 describe('subscribe / publish', () => {
   it('delivers published payload to a subscriber', () => {
@@ -177,7 +179,7 @@ describe('subscribe / publish', () => {
   });
 });
 
-// ─── handle / request (NARROW) ───────────────────────────────────────────────
+// --- handle / request (NARROW) -----------------------------------------------
 
 describe('handle / request', () => {
   it('request resolves with sync handler return value', async () => {
@@ -208,28 +210,38 @@ describe('handle / request', () => {
     expect(result).toBe('Hello, World!');
   });
 
-  it('rejects when no handler is registered on the topic', async () => {
+  it('rejects with NirnamRequestError(NO_HANDLER) when no handler registered', async () => {
     const bus = createBus();
-    await expect(bus.request('no-one-home', {})).rejects.toThrow(/No handler/);
+    const err = await bus.request('no-one-home', {}).catch(e => e);
+
+    expect(err).toBeInstanceOf(NirnamRequestError);
+    expect(err.code).toBe(NirnamErrorCode.NO_HANDLER);
+    expect(err.message).toMatch(/No handler/);
   });
 
-  it('rejects after the default timeout when no response arrives', async () => {
+  it('rejects with NirnamRequestError(TIMEOUT) after timeout elapses', async () => {
     jest.useFakeTimers();
     const bus = createBus({ requestTimeout: 100 });
-
-    // Request a topic with no handler — worker sends error synchronously here,
-    // so use a topic we've subscribed to but whose handler never responds.
-    // Simplest: override the request path by not registering any handler
-    // so the mock bus sends 'error'. We instead test a hung handler.
-
-    // Register a handler that never resolves to test the timer path
     bus.handle('slow', () => new Promise(() => {})); // never resolves
 
     const promise = bus.request('slow', {}, 100);
     jest.advanceTimersByTime(200);
     await flushPromises();
 
-    await expect(promise).rejects.toThrow('timed out after 100ms');
+    const err = await promise.catch(e => e);
+    expect(err).toBeInstanceOf(NirnamRequestError);
+    expect(err.code).toBe(NirnamErrorCode.TIMEOUT);
+    expect(err.message).toMatch(/timed out after 100ms/);
+  });
+
+  it('rejects with NirnamRequestError(HANDLER_REJECTED) when handler throws', async () => {
+    const bus = createBus();
+    bus.handle('explode', () => { throw new Error('boom'); });
+
+    const err = await bus.request('explode', {}).catch(e => e);
+    expect(err).toBeInstanceOf(NirnamRequestError);
+    expect(err.code).toBe(NirnamErrorCode.HANDLER_REJECTED);
+    expect(err.message).toMatch(/boom/);
   });
 
   it('per-call timeout overrides default', async () => {
@@ -244,12 +256,29 @@ describe('handle / request', () => {
     await expect(promise).rejects.toThrow('timed out after 50ms');
   });
 
+  it('routes successive requests round-robin across multiple handlers', async () => {
+    const busA = createBus();
+    const busB = createBus();
+    const busC = createBus();
+
+    busA.handle<number, string>('compute', n => `A:${n}`);
+    busB.handle<number, string>('compute', n => `B:${n}`);
+
+    const r1 = await busC.request<number, string>('compute', 1);
+    const r2 = await busC.request<number, string>('compute', 2);
+    const r3 = await busC.request<number, string>('compute', 3);
+
+    expect(r1).toBe('A:1');
+    expect(r2).toBe('B:2');
+    expect(r3).toBe('A:3');
+  });
+
   it('handle cleanup stops the handler from receiving requests', async () => {
     const bus = createBus();
     const unsub = bus.handle('topic', () => 'original');
     unsub();
 
-    await expect(bus.request('topic', {})).rejects.toThrow();
+    await expect(bus.request('topic', {})).rejects.toBeInstanceOf(NirnamRequestError);
   });
 
   it('handle cleanup sends worker unsubscribe when no broadcast handlers remain', () => {
@@ -311,7 +340,137 @@ describe('handle / request', () => {
   });
 });
 
-// ─── BroadcastChannel ────────────────────────────────────────────────────────
+// --- handleStream / requestStream (NARROW streaming) ------------------------
+
+describe('handleStream / requestStream', () => {
+  it('delivers all chunks in order and completes', async () => {
+    const busA = createBus();
+    const busB = createBus();
+
+    busA.handleStream<number, number>('squares', async function* (n) {
+      for (let i = 1; i <= n; i++) yield i * i;
+    });
+
+    const results: number[] = [];
+    for await (const chunk of busB.requestStream<number, number>('squares', 3)) {
+      results.push(chunk);
+    }
+
+    expect(results).toEqual([1, 4, 9]);
+  });
+
+  it('delivers string chunks cross-bus', async () => {
+    const busA = createBus();
+    const busB = createBus();
+
+    busA.handleStream<string, string>('words', async function* (sentence) {
+      for (const word of sentence.split(' ')) yield word;
+    });
+
+    const words: string[] = [];
+    for await (const w of busB.requestStream<string, string>('words', 'hello world foo')) {
+      words.push(w);
+    }
+
+    expect(words).toEqual(['hello', 'world', 'foo']);
+  });
+
+  it('single-item stream works correctly', async () => {
+    const bus = createBus();
+    bus.handleStream('single', async function* () { yield 'only'; });
+
+    const results: string[] = [];
+    for await (const chunk of bus.requestStream<void, string>('single', undefined as unknown as void)) {
+      results.push(chunk);
+    }
+
+    expect(results).toEqual(['only']);
+  });
+
+  it('empty stream completes without yielding', async () => {
+    const bus = createBus();
+    bus.handleStream('empty', async function* () { /* nothing */ });
+
+    const results: unknown[] = [];
+    for await (const chunk of bus.requestStream('empty', null)) {
+      results.push(chunk);
+    }
+
+    expect(results).toHaveLength(0);
+  });
+
+  it('stream error mid-way propagates as NirnamRequestError', async () => {
+    const busA = createBus();
+    const busB = createBus();
+
+    busA.handleStream('fail-mid', async function* () {
+      yield 'first';
+      throw new Error('mid-stream failure');
+    });
+
+    const iter = busB.requestStream<null, string>('fail-mid', null)[Symbol.asyncIterator]();
+
+    const first = await iter.next();
+    expect(first.value).toBe('first');
+    expect(first.done).toBe(false);
+
+    await expect(iter.next()).rejects.toBeInstanceOf(NirnamRequestError);
+  });
+
+  it('requestStream rejects with NirnamRequestError(NO_HANDLER) when no stream handler', async () => {
+    const bus = createBus();
+
+    const iter = bus.requestStream('ghost-stream', {})[Symbol.asyncIterator]();
+    const err = await iter.next().catch(e => e);
+
+    expect(err).toBeInstanceOf(NirnamRequestError);
+    expect(err.code).toBe(NirnamErrorCode.NO_HANDLER);
+  });
+
+  it('handleStream cleanup sends unsubscribe when no other handlers remain', () => {
+    const bus = createBus();
+    const { worker } = internals(bus);
+    const unsub = bus.handleStream('topic', async function* () {});
+    unsub();
+
+    expect(worker.port.postMessage).toHaveBeenCalledWith({ type: 'unsubscribe', topic: 'topic' });
+  });
+
+  it('handleStream cleanup does NOT unsubscribe when broadcast handler still active', () => {
+    const bus = createBus();
+    const { worker } = internals(bus);
+
+    bus.subscribe('topic', jest.fn());
+    const unsub = bus.handleStream('topic', async function* () {});
+    unsub();
+
+    const calls = worker.port.postMessage.mock.calls.map((c: unknown[]) => (c[0] as { type: string }).type);
+    expect(calls).not.toContain('unsubscribe');
+  });
+
+  it('pendingStreams map is cleaned up after stream completes', async () => {
+    const bus = createBus();
+    bus.handleStream('ch', async function* () { yield 1; });
+
+    for await (const _ of bus.requestStream('ch', null)) { /* consume */ }
+
+    expect(internals(bus).pendingStreams.size).toBe(0);
+  });
+
+  it('pendingStreams map is cleaned up after stream error', async () => {
+    const busA = createBus();
+    const busB = createBus();
+
+    busA.handleStream('err-ch', async function* () { throw new Error('abort'); });
+
+    const iter = busB.requestStream('err-ch', null)[Symbol.asyncIterator]();
+    await iter.next().catch(() => {});
+
+    expect(internals(busB).pendingStreams.size).toBe(0);
+  });
+});
+
+// --- BroadcastChannel --------------------------------------------------------
 
 describe('BroadcastChannel', () => {
   it('publish sends a message to the BroadcastChannel', () => {
@@ -347,13 +506,11 @@ describe('BroadcastChannel', () => {
     const handler = jest.fn();
     bus.subscribe('topic', handler);
 
-    // Publish once — worker delivers it (handler called once).
     bus.publish('topic', 'data');
     handler.mockClear();
 
-    // Simulate the BroadcastChannel echoing back our own message (same PAGE_ID).
     const channel = internals(bus).channel!;
-    channel._simulateIncoming(channel.lastPostedData); // lastPostedData has same sourcePageId
+    channel._simulateIncoming(channel.lastPostedData);
 
     expect(handler).not.toHaveBeenCalled();
   });
@@ -364,17 +521,9 @@ describe('BroadcastChannel', () => {
     const handlerB = jest.fn();
 
     busB.subscribe('cross-tab', handlerB);
-
-    // Simulate busA's BC message arriving at busB's channel instance
-    const busAChannel = internals(busA).channel!;
-    const busBChannel = internals(busB).channel!;
     busA.publish('cross-tab', 'from-tab-A');
 
-    // busA.channel.postMessage notified other instances; busB's channel is one of them
-    // (because MockBroadcastChannel uses a static registry).
-    // Verify busB received it via BC.
-    // Since both channels are created in the same test, the mock registry links them.
-    expect(handlerB).toHaveBeenCalled(); // delivered via SharedWorker (same mock bus)
+    expect(handlerB).toHaveBeenCalled();
   });
 
   it('useBroadcastChannel: false skips channel creation', () => {
@@ -407,7 +556,7 @@ describe('BroadcastChannel', () => {
     const channel = internals(bus).channel!;
 
     channel._simulateIncoming({
-      type: 'request', // not 'broadcast'
+      type: 'request',
       topic: 'topic',
       payload: 'x',
       sourcePageId: 'other',
@@ -417,7 +566,7 @@ describe('BroadcastChannel', () => {
   });
 });
 
-// ─── close() ─────────────────────────────────────────────────────────────────
+// --- close() -----------------------------------------------------------------
 
 describe('close()', () => {
   it('closes the worker port', () => {
@@ -445,7 +594,7 @@ describe('close()', () => {
   });
 });
 
-// ─── Options ─────────────────────────────────────────────────────────────────
+// --- Options -----------------------------------------------------------------
 
 describe('options', () => {
   it('workerUrl passes the static URL to SharedWorker constructor', () => {
@@ -472,7 +621,7 @@ describe('options', () => {
   });
 });
 
-// ─── NirnamBus class export ───────────────────────────────────────────────────
+// --- NirnamBus class export --------------------------------------------------
 
 describe('createBus / NirnamBus export', () => {
   it('createBus returns a NirnamBus instance', () => {
@@ -483,5 +632,31 @@ describe('createBus / NirnamBus export', () => {
     const a = createBus();
     const b = createBus();
     expect(a).not.toBe(b);
+  });
+});
+
+// --- NirnamRequestError ------------------------------------------------------
+
+describe('NirnamRequestError', () => {
+  it('is an instance of Error', () => {
+    const e = new NirnamRequestError(NirnamErrorCode.TIMEOUT, 'test');
+    expect(e).toBeInstanceOf(Error);
+  });
+
+  it('has the correct name', () => {
+    const e = new NirnamRequestError(NirnamErrorCode.NO_HANDLER, 'test');
+    expect(e.name).toBe('NirnamRequestError');
+  });
+
+  it('exposes the code on the instance', () => {
+    const e = new NirnamRequestError(NirnamErrorCode.HANDLER_REJECTED, 'msg');
+    expect(e.code).toBe(NirnamErrorCode.HANDLER_REJECTED);
+  });
+
+  it('all NirnamErrorCode values are defined', () => {
+    expect(NirnamErrorCode.NO_HANDLER).toBe('NO_HANDLER');
+    expect(NirnamErrorCode.HANDLER_REJECTED).toBe('HANDLER_REJECTED');
+    expect(NirnamErrorCode.TIMEOUT).toBe('TIMEOUT');
+    expect(NirnamErrorCode.STREAM_ABORTED).toBe('STREAM_ABORTED');
   });
 });

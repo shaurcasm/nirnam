@@ -3,13 +3,33 @@ export enum RequestType {
   NARROW = 'narrow',
 }
 
+export enum NirnamErrorCode {
+  NO_HANDLER = 'NO_HANDLER',
+  HANDLER_REJECTED = 'HANDLER_REJECTED',
+  TIMEOUT = 'TIMEOUT',
+  STREAM_ABORTED = 'STREAM_ABORTED',
+}
+
+export class NirnamRequestError extends Error {
+  constructor(
+    public readonly code: NirnamErrorCode,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'NirnamRequestError';
+  }
+}
+
 export type NirnamMessageType =
   | 'subscribe'
   | 'unsubscribe'
   | 'broadcast'
   | 'request'
   | 'response'
-  | 'error';
+  | 'error'
+  | 'request-stream'
+  | 'stream-chunk'
+  | 'stream-end';
 
 export interface NirnamMessage<T = unknown> {
   type: NirnamMessageType;
@@ -18,6 +38,7 @@ export interface NirnamMessage<T = unknown> {
   requestId?: string;
   sourcePageId?: string;
   error?: string;
+  code?: NirnamErrorCode;
 }
 
 export interface NirnamBusOptions {
@@ -36,3 +57,7 @@ export type SubscribeHandler<T = unknown> = (payload: T) => void;
 export type RequestHandler<Req = unknown, Res = unknown> = (
   payload: Req
 ) => Res | Promise<Res>;
+
+export type StreamHandler<Req = unknown, Res = unknown> = (
+  payload: Req
+) => AsyncIterable<Res>;

@@ -10,20 +10,21 @@ The current library (`Library/`) ships:
 
 ---
 
-## 1. Request-Reply Layer (partially shipped)
+## 1. Request-Reply Layer
 
-**Status:** Core mechanics implemented. Gaps remain.
+**Status:** Complete.
 
-**What's in v2:**
+**Shipped in v2.1:**
 - `bus.request<Req, Res>(topic, payload, timeout?)` — sends a NARROW request, returns Promise
-- `bus.handle<Req, Res>(topic, handler)` — registers a responder
-- Worker tracks `pendingRequests: Map<requestId, originPort>` and routes responses back
+- `bus.handle<Req, Res>(topic, handler)` — registers a responder; sync and async handlers both supported
+- `bus.requestStream<Req, Res>(topic, payload)` — returns `AsyncIterable<Res>` for streaming responses
+- `bus.handleStream<Req, Res>(topic, handler)` — registers an async-generator handler that yields chunks
+- Worker uses **round-robin** selection when multiple handlers are registered for the same topic
+- `NirnamRequestError` — structured error class with `code: NirnamErrorCode` (`NO_HANDLER`, `HANDLER_REJECTED`, `TIMEOUT`, `STREAM_ABORTED`)
+- Worker tracks `pendingRequests: Map<requestId, originPort>` and routes responses and stream chunks back
 
-**What's missing:**
-- **Multiple handlers / load balancing**: right now the first registered handler always gets the request. Round-robin or least-loaded routing should be opt-in.
-- **Streaming responses**: `request()` returns a single resolved value. For LLM token streaming, a response should be able to emit multiple chunks before completing. Planned shape: `bus.requestStream<Req, Res>(topic, payload)` returns an `AsyncIterable<Res>`.
-- **Cross-tab request-reply**: NARROW requests currently only route within-page (SharedWorker only). Cross-tab request-reply requires either a static URL SharedWorker (Layer 3) or a relay via BroadcastChannel with a two-pass protocol (request out → all tabs → handler responds → sender routes back). This is non-trivial and planned separately.
-- **Error propagation**: handler rejections propagate as `error` messages. Structured error types with codes should be defined.
+**Deferred:**
+- **Cross-tab request-reply**: NARROW requests route within-page only (SharedWorker Layer 2). Cross-tab requires either a static URL SharedWorker (Layer 3) or a BroadcastChannel two-pass relay. Planned separately.
 
 ---
 

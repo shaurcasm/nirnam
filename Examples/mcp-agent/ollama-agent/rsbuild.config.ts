@@ -3,14 +3,13 @@ import { pluginReact } from "@rsbuild/plugin-react";
 import { pluginModuleFederation } from "@module-federation/rsbuild-plugin";
 
 export default defineConfig({
-  server: { port: 3000 },
+  server: { port: 3001 },
   plugins: [
     pluginReact(),
     pluginModuleFederation({
-      name: "mcp_host",
-      remotes: {
-        ollama_agent: "ollama_agent@http://localhost:3001/mf-manifest.json",
-        scribe_agent: "scribe_agent@http://localhost:3002/mf-manifest.json",
+      name: "ollama_agent",
+      exposes: {
+        "./OllamaAgent": "./src/components/OllamaAgent",
       },
       shared: {
         react: { singleton: true, requiredVersion: "^18.3.1" },

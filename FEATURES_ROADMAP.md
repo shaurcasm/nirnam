@@ -1,12 +1,12 @@
-# Nirnam — Features Roadmap
+﻿# Nirnam â€” Features Roadmap
 
 This document tracks planned features on top of the core three-layer hybrid bus
 (SharedWorker + BroadcastChannel + opt-in static URL).
 
 The current library (`Library/`) ships:
-- `publish` / `subscribe` — BROAD fan-out (Layer 1 + 2)
-- `request` / `handle` — NARROW request-reply with correlation IDs (Layer 2)
-- `createBus(options?)` — clean factory, no singleton anti-pattern
+- `publish` / `subscribe` â€” BROAD fan-out (Layer 1 + 2)
+- `request` / `handle` â€” NARROW request-reply with correlation IDs (Layer 2)
+- `createBus(options?)` â€” clean factory, no singleton anti-pattern
 
 ---
 
@@ -15,12 +15,12 @@ The current library (`Library/`) ships:
 **Status:** Complete.
 
 **Shipped in v2.1:**
-- `bus.request<Req, Res>(topic, payload, timeout?)` — sends a NARROW request, returns Promise
-- `bus.handle<Req, Res>(topic, handler)` — registers a responder; sync and async handlers both supported
-- `bus.requestStream<Req, Res>(topic, payload)` — returns `AsyncIterable<Res>` for streaming responses
-- `bus.handleStream<Req, Res>(topic, handler)` — registers an async-generator handler that yields chunks
+- `bus.request<Req, Res>(topic, payload, timeout?)` â€” sends a NARROW request, returns Promise
+- `bus.handle<Req, Res>(topic, handler)` â€” registers a responder; sync and async handlers both supported
+- `bus.requestStream<Req, Res>(topic, payload)` â€” returns `AsyncIterable<Res>` for streaming responses
+- `bus.handleStream<Req, Res>(topic, handler)` â€” registers an async-generator handler that yields chunks
 - Worker uses **round-robin** selection when multiple handlers are registered for the same topic
-- `NirnamRequestError` — structured error class with `code: NirnamErrorCode` (`NO_HANDLER`, `HANDLER_REJECTED`, `TIMEOUT`, `STREAM_ABORTED`)
+- `NirnamRequestError` â€” structured error class with `code: NirnamErrorCode` (`NO_HANDLER`, `HANDLER_REJECTED`, `TIMEOUT`, `STREAM_ABORTED`)
 - Worker tracks `pendingRequests: Map<requestId, originPort>` and routes responses and stream chunks back
 
 **Deferred:**
@@ -30,7 +30,7 @@ The current library (`Library/`) ships:
 
 ## 2. Agent Registration Protocol
 
-**Status:** Not yet implemented.
+**Status:** Complete.
 
 **Purpose:** Enables agents (LLM remotes, MFE components) to announce their presence and capabilities at connect time, so an orchestrator can discover what tools are available without prior knowledge.
 
@@ -56,7 +56,7 @@ bus.onAgentChange((event) => {
 ```
 
 **Worker-side changes needed:**
-- New `register` message type: worker stores `agentId → { port, capabilities, metadata }`
+- New `register` message type: worker stores `agentId â†’ { port, capabilities, metadata }`
 - New `discover` message type: worker responds with current registry snapshot
 - Port `close` event cleans up registry entry and broadcasts a `leave` event to listeners
 - Agent registry is per-worker-process (within-page). Cross-tab registry requires Layer 3 (static URL SharedWorker).
@@ -68,9 +68,9 @@ Workers can go stale if a port closes without firing `close`. A periodic heartbe
 
 ## 3. NirnamMCPTransport
 
-**Status:** Not yet implemented.
+**Status:** Complete.
 
-**Purpose:** Implement the [Model Context Protocol](https://modelcontextprotocol.io/) `Transport` interface on top of the Nirnam bus, enabling LLM agents loaded as micro-frontend remotes to expose MCP tools and call each other's tools — all client-side, without a server.
+**Purpose:** Implement the [Model Context Protocol](https://modelcontextprotocol.io/) `Transport` interface on top of the Nirnam bus, enabling LLM agents loaded as micro-frontend remotes to expose MCP tools and call each other's tools â€” all client-side, without a server.
 
 **Background:**
 MCP defines a JSON-RPC 2.0 protocol with built-in transports (stdio, HTTP/SSE, WebSocket). The TypeScript SDK exposes a `Transport` interface that can be implemented over any message-passing channel. The Nirnam bus (SharedWorker + BroadcastChannel) is a suitable channel for browser-native, same-origin MCP.
@@ -112,7 +112,7 @@ class NirnamMCPTransport implements Transport {
       `mcp:${this.agentId}`,
       (message) => {
         this.onmessage?.(message);
-        // Responses come back via the Promise returned by handle — not applicable here.
+        // Responses come back via the Promise returned by handle â€” not applicable here.
         // MCP uses onmessage for both requests and responses; the SDK drives routing.
       }
     );
@@ -132,11 +132,11 @@ class NirnamMCPTransport implements Transport {
 ```
 
 **Key constraints:**
-- Same-origin only (SharedWorker boundary). Cross-origin MFEs (different domains) cannot share the worker — they need WebSockets or a server-side relay.
+- Same-origin only (SharedWorker boundary). Cross-origin MFEs (different domains) cannot share the worker â€” they need WebSockets or a server-side relay.
 - The `request` / `handle` bus primitives map cleanly to MCP's request-response pattern. Each MCP call becomes a Nirnam `request`, routing to the agent registered on that topic.
-- Streaming tool results (for LLM token streaming) require the streaming response feature (see §1).
+- Streaming tool results (for LLM token streaming) require the streaming response feature (see Â§1).
 
-**Planned entry point:** `@shaurcasm/nirnam/mcp` — a separate subpath export so the MCP SDK is an optional peer dependency and doesn't bloat the core bundle.
+**Planned entry point:** `@shaurcasm/nirnam/mcp` â€” a separate subpath export so the MCP SDK is an optional peer dependency and doesn't bloat the core bundle.
 
 ---
 
@@ -207,14 +207,14 @@ class MyComponent {
 
 **Status:** Planned.
 
-**Purpose:** When a new agent or tab joins, it can replay recent messages on a topic — useful for catching up on tool call history in multi-agent LLM scenarios.
+**Purpose:** When a new agent or tab joins, it can replay recent messages on a topic â€” useful for catching up on tool call history in multi-agent LLM scenarios.
 
-**Design (from TRANSPORT_LAYER_ANALYSIS.md §4.2):**
+**Design (from TRANSPORT_LAYER_ANALYSIS.md Â§4.2):**
 - Producer writes to IndexedDB on `publish`
 - BroadcastChannel signals new message
 - Consumer reads from IndexedDB on join to replay missed events
 - Opt-in per topic: `bus.publish('my-topic', data, { persist: true, ttl: 60000 })`
-- `bus.subscribe('my-topic', handler, { replay: 10 })` — replay last 10 messages on subscribe
+- `bus.subscribe('my-topic', handler, { replay: 10 })` â€” replay last 10 messages on subscribe
 
 ---
 
@@ -225,9 +225,9 @@ class MyComponent {
 **Purpose:** Make Layer 3 (static URL SharedWorker) easy to enable without manual file copy.
 
 **Planned plugins:**
-- `@shaurcasm/nirnam/vite` — Vite plugin that copies `worker.js` to `public/` and injects the URL
-- `@shaurcasm/nirnam/rsbuild` — Rsbuild/Rspack plugin (same pattern)
-- `@shaurcasm/nirnam/webpack` — Webpack `CopyWebpackPlugin` config helper
+- `@shaurcasm/nirnam/vite` â€” Vite plugin that copies `worker.js` to `public/` and injects the URL
+- `@shaurcasm/nirnam/rsbuild` â€” Rsbuild/Rspack plugin (same pattern)
+- `@shaurcasm/nirnam/webpack` â€” Webpack `CopyWebpackPlugin` config helper
 
 **Usage:**
 ```ts
@@ -235,6 +235,7 @@ class MyComponent {
 import { nirnamPlugin } from '@shaurcasm/nirnam/vite';
 export default { plugins: [nirnamPlugin()] };
 
-// App code — URL auto-injected by plugin
+// App code â€” URL auto-injected by plugin
 const bus = createBus(); // automatically uses /nirnam-worker.js when plugin is present
 ```
+

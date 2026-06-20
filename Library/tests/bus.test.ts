@@ -660,3 +660,125 @@ describe('NirnamRequestError', () => {
     expect(NirnamErrorCode.STREAM_ABORTED).toBe('STREAM_ABORTED');
   });
 });
+
+// --- Agent Registration Protocol ---------------------------------------------
+
+describe('register / discoverAgents / onAgentChange', () => {
+  it('register() sends a register message to the worker', () => {
+    const bus = createBus();
+    const { worker } = internals(bus);
+
+    bus.register({ agentId: 'calc-agent', capabilities: ['add'], metadata: { v: 1 } });
+
+    expect(worker.port.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'register', agentId: 'calc-agent' })
+    );
+  });
+
+  it('discoverAgents() returns empty array when no agents registered', async () => {
+    const bus = createBus();
+    const agents = await bus.discoverAgents();
+    expect(agents).toEqual([]);
+  });
+
+  it('discoverAgents() returns registered agents', async () => {
+    const busA = createBus();
+    const busB = createBus();
+
+    busA.register({ agentId: 'agent-1', capabilities: ['foo'] });
+    busB.register({ agentId: 'agent-2', capabilities: ['bar'] });
+
+    const agents = await busA.discoverAgents();
+
+    expect(agents).toHaveLength(2);
+    expect(agents.map(a => a.agentId)).toEqual(expect.arrayContaining(['agent-1', 'agent-2']));
+  });
+
+  it('discoverAgents() includes capabilities and metadata', async () => {
+    const bus = createBus();
+    bus.register({
+      agentId: 'rich-agent',
+      capabilities: ['read', 'write'],
+      metadata: { model: 'claude-sonnet-4-6' },
+    });
+
+    const [agent] = await bus.discoverAgents();
+
+    expect(agent.capabilities).toEqual(['read', 'write']);
+    expect(agent.metadata).toEqual({ model: 'claude-sonnet-4-6' });
+  });
+
+  it('onAgentChange() fires with type:join when a new agent registers', async () => {
+    const observer = createBus();
+    const agent = createBus();
+    const handler = jest.fn();
+
+    observer.onAgentChange(handler);
+    agent.register({ agentId: 'newcomer' });
+
+    await Promise.resolve(); // allow microtasks
+
+    expect(handler).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'join', agent: expect.objectContaining({ agentId: 'newcomer' }) })
+    );
+  });
+
+  it('onAgentChange() fires with type:leave when a registered agent closes', async () => {
+    const observer = createBus();
+    const agent = createBus();
+    const handler = jest.fn();
+
+    observer.onAgentChange(handler);
+    agent.register({ agentId: 'leaver' });
+    agent.close(); // triggers port.close() which cleans up the agent registry
+
+    expect(handler).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'leave', agentId: 'leaver' })
+    );
+  });
+
+  it('onAgentChange() unsub stops future notifications', () => {
+    const observer = createBus();
+    const agent = createBus();
+    const handler = jest.fn();
+
+    const unsub = observer.onAgentChange(handler);
+    unsub();
+    agent.register({ agentId: 'silent' });
+
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it('sends watch-agents only once regardless of handler count', () => {
+    const bus = createBus();
+    const { worker } = internals(bus);
+
+    bus.onAgentChange(() => {});
+    bus.onAgentChange(() => {});
+    bus.onAgentChange(() => {});
+
+    const watchCalls = worker.port.postMessage.mock.calls.filter(
+      (c: unknown[]) => (c[0] as { type: string }).type === 'watch-agents'
+    );
+    expect(watchCalls).toHaveLength(1);
+  });
+
+  it('registering the same agentId twice overwrites the previous entry', async () => {
+    const bus = createBus();
+
+    bus.register({ agentId: 'my-agent', capabilities: ['v1'] });
+    bus.register({ agentId: 'my-agent', capabilities: ['v2'] });
+
+    const agents = await bus.discoverAgents();
+    expect(agents).toHaveLength(1);
+    expect(agents[0].capabilities).toEqual(['v2']);
+  });
+
+  it('agent without capabilities or metadata is still discoverable', async () => {
+    const bus = createBus();
+    bus.register({ agentId: 'bare-agent' });
+
+    const [agent] = await bus.discoverAgents();
+    expect(agent.agentId).toBe('bare-agent');
+  });
+});

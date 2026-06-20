@@ -1,5 +1,5 @@
-/**
- * SharedWorker script source — embedded as a string so the library is
+﻿/**
+ * SharedWorker script source -- embedded as a string so the library is
  * self-contained (no static file deployment required by default).
  *
  * Runs in classic mode (no type:"module") for maximum browser compatibility,
@@ -15,13 +15,22 @@ var MESSAGE_TYPES = {
   RESPONSE: 'response',
   REQUEST_STREAM: 'request-stream',
   STREAM_CHUNK: 'stream-chunk',
-  STREAM_END: 'stream-end'
+  STREAM_END: 'stream-end',
+  REGISTER: 'register',
+  DISCOVER: 'discover',
+  WATCH_AGENTS: 'watch-agents'
 };
 
 function MessageBus() {
   this.topicSubscribers = new Map();
   this.pendingRequests = new Map();
   this.rrCounters = new Map();
+  // Agent registry: agentId -> { agentId, capabilities, metadata }
+  this.agentRegistry = new Map();
+  // Maps agentId -> port so we can clean up on port close
+  this.agentPortMap = new Map();
+  // Ports that want agent-joined / agent-left notifications
+  this.agentWatchers = new Set();
 }
 
 MessageBus.prototype.subscribe = function(topic, port) {
@@ -52,6 +61,21 @@ MessageBus.prototype.unsubscribePort = function(port) {
   self.pendingRequests.forEach(function(originPort, id) {
     if (originPort === port) self.pendingRequests.delete(id);
   });
+  // Clean up agent registry entries owned by this port
+  var leftAgents = [];
+  self.agentPortMap.forEach(function(agentPort, agentId) {
+    if (agentPort === port) {
+      self.agentPortMap.delete(agentId);
+      self.agentRegistry.delete(agentId);
+      leftAgents.push(agentId);
+    }
+  });
+  leftAgents.forEach(function(agentId) {
+    self.agentWatchers.forEach(function(watcher) {
+      watcher.postMessage({ type: 'agent-left', agentId: agentId });
+    });
+  });
+  self.agentWatchers.delete(port);
 };
 
 MessageBus.prototype.broadcast = function(topic, payload, sourcePageId) {
@@ -117,6 +141,25 @@ MessageBus.prototype.streamEnd = function(requestId) {
   }
 };
 
+MessageBus.prototype.registerAgent = function(agentId, capabilities, metadata, port) {
+  this.agentRegistry.set(agentId, { agentId: agentId, capabilities: capabilities, metadata: metadata });
+  this.agentPortMap.set(agentId, port);
+  var reg = { agentId: agentId, capabilities: capabilities, metadata: metadata };
+  this.agentWatchers.forEach(function(watcher) {
+    watcher.postMessage({ type: 'agent-joined', agent: reg });
+  });
+};
+
+MessageBus.prototype.discoverAgents = function(requestId, requestingPort) {
+  var agents = [];
+  this.agentRegistry.forEach(function(reg) { agents.push(reg); });
+  requestingPort.postMessage({ type: 'agent-list', requestId: requestId, agents: agents });
+};
+
+MessageBus.prototype.watchAgents = function(port) {
+  this.agentWatchers.add(port);
+};
+
 var messageBus = null;
 
 onconnect = function(event) {
@@ -137,6 +180,9 @@ onconnect = function(event) {
     var payload = data.payload;
     var requestId = data.requestId;
     var sourcePageId = data.sourcePageId;
+    var agentId = data.agentId;
+    var capabilities = data.capabilities;
+    var metadata = data.metadata;
 
     try {
       switch (type) {
@@ -171,6 +217,17 @@ onconnect = function(event) {
         case MESSAGE_TYPES.STREAM_END:
           if (!requestId) throw new Error('stream-end requires requestId');
           messageBus.streamEnd(requestId);
+          break;
+        case MESSAGE_TYPES.REGISTER:
+          if (!agentId) throw new Error('register requires agentId');
+          messageBus.registerAgent(agentId, capabilities, metadata, port);
+          break;
+        case MESSAGE_TYPES.DISCOVER:
+          if (!requestId) throw new Error('discover requires requestId');
+          messageBus.discoverAgents(requestId, port);
+          break;
+        case MESSAGE_TYPES.WATCH_AGENTS:
+          messageBus.watchAgents(port);
           break;
         default:
           throw new Error('Unknown message type: "' + type + '"');

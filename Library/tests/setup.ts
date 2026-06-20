@@ -20,10 +20,19 @@ interface IMockPort {
   _receive(data: unknown): void;
 }
 
+interface MockAgentEntry {
+  agentId: string;
+  capabilities?: string[];
+  metadata?: Record<string, unknown>;
+  port: IMockPort;
+}
+
 class MockMessageBus {
   topicSubscribers = new Map<string, Set<IMockPort>>();
   pendingRequests = new Map<string, IMockPort>();
   rrCounters = new Map<string, number>();
+  agentRegistry = new Map<string, MockAgentEntry>();
+  agentWatchers = new Set<IMockPort>();
 
   subscribe(topic: string, port: IMockPort) {
     const subs = this.topicSubscribers.get(topic) ?? new Set<IMockPort>();
@@ -89,9 +98,7 @@ class MockMessageBus {
 
   streamChunk(requestId: string, payload: unknown) {
     const originPort = this.pendingRequests.get(requestId);
-    if (originPort) {
-      originPort._receive({ type: 'stream-chunk', requestId, payload });
-    }
+    if (originPort) originPort._receive({ type: 'stream-chunk', requestId, payload });
   }
 
   streamEnd(requestId: string) {
@@ -100,6 +107,43 @@ class MockMessageBus {
       originPort._receive({ type: 'stream-end', requestId });
       this.pendingRequests.delete(requestId);
     }
+  }
+
+  registerAgent(agentId: string, capabilities: string[] | undefined, metadata: Record<string, unknown> | undefined, port: IMockPort) {
+    this.agentRegistry.set(agentId, { agentId, capabilities, metadata, port });
+    const reg = { agentId, capabilities, metadata };
+    this.agentWatchers.forEach(watcher => {
+      watcher._receive({ type: 'agent-joined', agent: reg });
+    });
+  }
+
+  discoverAgents(requestId: string, requestingPort: IMockPort) {
+    const agents = [...this.agentRegistry.values()].map(({ agentId, capabilities, metadata }) => ({
+      agentId,
+      capabilities,
+      metadata,
+    }));
+    requestingPort._receive({ type: 'agent-list', requestId, agents });
+  }
+
+  watchAgents(port: IMockPort) {
+    this.agentWatchers.add(port);
+  }
+
+  cleanupPort(port: IMockPort) {
+    const leftAgents: string[] = [];
+    for (const [agentId, entry] of this.agentRegistry.entries()) {
+      if (entry.port === port) {
+        this.agentRegistry.delete(agentId);
+        leftAgents.push(agentId);
+      }
+    }
+    leftAgents.forEach(agentId => {
+      this.agentWatchers.forEach(watcher => {
+        if (watcher !== port) watcher._receive({ type: 'agent-left', agentId });
+      });
+    });
+    this.agentWatchers.delete(port);
   }
 }
 
@@ -124,8 +168,7 @@ function createMockPort(): IMockPort {
     onmessage: null,
     onerror: null,
     postMessage: jest.fn((data: Record<string, unknown>) => {
-      // Port -> Worker: route through the current mock bus
-      const { type, topic, payload, requestId, sourcePageId } = data;
+      const { type, topic, payload, requestId, sourcePageId, agentId, capabilities, metadata } = data;
       switch (type) {
         case 'subscribe':
           currentMockBus.subscribe(topic as string, port);
@@ -152,7 +195,6 @@ function createMockPort(): IMockPort {
           currentMockBus.streamEnd(requestId as string);
           break;
         case 'error': {
-          // Handler bus sends error back to worker; route it to the origin port.
           const originPort = currentMockBus.pendingRequests.get(requestId as string);
           if (originPort) {
             currentMockBus.pendingRequests.delete(requestId as string);
@@ -160,12 +202,28 @@ function createMockPort(): IMockPort {
           }
           break;
         }
+        case 'register':
+          currentMockBus.registerAgent(
+            agentId as string,
+            capabilities as string[] | undefined,
+            metadata as Record<string, unknown> | undefined,
+            port,
+          );
+          break;
+        case 'discover':
+          currentMockBus.discoverAgents(requestId as string, port);
+          break;
+        case 'watch-agents':
+          currentMockBus.watchAgents(port);
+          break;
       }
     }),
     start: jest.fn(),
-    close: jest.fn(),
+    close: jest.fn(() => {
+      // Simulate port close event: clean up agent registry entries for this port.
+      currentMockBus.cleanupPort(port);
+    }),
     _receive(data: unknown) {
-      // Worker -> Port: deliver by calling onmessage
       this.onmessage?.({ data });
     },
   };
@@ -189,9 +247,7 @@ export class MockBroadcastChannel {
   private static registry = new Map<string, MockBroadcastChannel[]>();
 
   onmessage: ((e: { data: unknown }) => void) | null = null;
-  /** Last data passed to postMessage -- useful for dedup assertions. */
   lastPostedData: unknown = null;
-
   private _name: string;
 
   constructor(name: string) {
@@ -203,23 +259,17 @@ export class MockBroadcastChannel {
 
   postMessage(data: unknown) {
     this.lastPostedData = data;
-    const others = (MockBroadcastChannel.registry.get(this._name) ?? []).filter(
-      ch => ch !== this
-    );
+    const others = (MockBroadcastChannel.registry.get(this._name) ?? []).filter(ch => ch !== this);
     others.forEach(ch => ch._simulateIncoming(data));
   }
 
-  /** Directly deliver a message as if it arrived from another tab. */
   _simulateIncoming(data: unknown) {
     this.onmessage?.({ data });
   }
 
   close() {
     const list = MockBroadcastChannel.registry.get(this._name) ?? [];
-    MockBroadcastChannel.registry.set(
-      this._name,
-      list.filter(ch => ch !== this)
-    );
+    MockBroadcastChannel.registry.set(this._name, list.filter(ch => ch !== this));
   }
 
   static getInstances(name = 'nirnam-bus-v1'): MockBroadcastChannel[] {

@@ -7,5 +7,8 @@ export type {
   SubscribeHandler,
   RequestHandler,
   StreamHandler,
+  AgentRegistration,
+  AgentChangeEvent,
+  AgentChangeHandler,
   UnsubscribeFn,
 } from './types';

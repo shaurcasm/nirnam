@@ -1,4 +1,4 @@
-export enum RequestType {
+﻿export enum RequestType {
   BROAD = 'broad',
   NARROW = 'narrow',
 }
@@ -29,7 +29,25 @@ export type NirnamMessageType =
   | 'error'
   | 'request-stream'
   | 'stream-chunk'
-  | 'stream-end';
+  | 'stream-end'
+  | 'register'
+  | 'discover'
+  | 'watch-agents'
+  | 'agent-list'
+  | 'agent-joined'
+  | 'agent-left';
+
+export interface AgentRegistration {
+  agentId: string;
+  capabilities?: string[];
+  metadata?: Record<string, unknown>;
+}
+
+export type AgentChangeEvent =
+  | { type: 'join'; agent: AgentRegistration }
+  | { type: 'leave'; agentId: string };
+
+export type AgentChangeHandler = (event: AgentChangeEvent) => void;
 
 export interface NirnamMessage<T = unknown> {
   type: NirnamMessageType;
@@ -39,6 +57,12 @@ export interface NirnamMessage<T = unknown> {
   sourcePageId?: string;
   error?: string;
   code?: NirnamErrorCode;
+  // Agent registration fields
+  agentId?: string;
+  capabilities?: string[];
+  metadata?: Record<string, unknown>;
+  agents?: AgentRegistration[];
+  agent?: AgentRegistration;
 }
 
 export interface NirnamBusOptions {

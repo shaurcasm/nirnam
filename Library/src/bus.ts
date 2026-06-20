@@ -9,27 +9,17 @@ import type {
   SubscribeHandler,
   RequestHandler,
   StreamHandler,
+  AgentRegistration,
+  AgentChangeHandler,
   UnsubscribeFn,
 } from './types';
 
-/**
- * Per-page ID used to prevent BroadcastChannel from re-delivering messages
- * to the same page that published them (those already arrive via SharedWorker).
- */
 const PAGE_ID = Math.random().toString(36).slice(2);
 const CHANNEL_NAME = 'nirnam-bus-v1';
 const WORKER_NAME = 'nirnam-message-worker';
 
-/**
- * Sentinel pushed into a stream queue to signal the stream is complete.
- * Using a symbol avoids conflicting with any real payload value.
- */
 const STREAM_END_SENTINEL = Symbol('nirnam.stream.end');
 
-/**
- * Module-level Blob URL so all NirnamBus instances in the same page connect
- * to the same SharedWorker process (same URL + same name = same worker).
- */
 let workerBlobUrl: string | null = null;
 
 function resolveWorkerUrl(staticUrl?: string): string {
@@ -50,10 +40,10 @@ interface StreamPending {
 /**
  * Three-layer hybrid message bus:
  *
- * Layer 1 — BroadcastChannel: cross-tab pub/sub fan-out, zero deployment.
- * Layer 2 — Blob URL SharedWorker: within-page subscriber registry and routing,
- *            including request-reply correlation and streaming.
- * Layer 3 — Static URL SharedWorker (opt-in via `workerUrl`): true cross-tab
+ * Layer 1 - BroadcastChannel: cross-tab pub/sub fan-out, zero deployment.
+ * Layer 2 - Blob URL SharedWorker: within-page subscriber registry, routing,
+ *            request-reply, streaming, and agent registration.
+ * Layer 3 - Static URL SharedWorker (opt-in via workerUrl): true cross-tab
  *            SharedWorker sharing when a static file can be served.
  */
 export class NirnamBus {
@@ -68,7 +58,10 @@ export class NirnamBus {
     timer: ReturnType<typeof setTimeout>;
   }>();
   private readonly pendingStreams = new Map<string, StreamPending>();
+  private readonly pendingDiscoveries = new Map<string, (agents: AgentRegistration[]) => void>();
   private readonly subscribedTopics = new Set<string>();
+  private readonly agentChangeHandlers = new Set<AgentChangeHandler>();
+  private isWatchingAgents = false;
   private readonly timeout: number;
 
   constructor(options: NirnamBusOptions = {}) {
@@ -91,24 +84,22 @@ export class NirnamBus {
     }
   }
 
-  /**
-   * Subscribe to broadcast events on a topic (BROAD / fan-out).
-   * Returns an unsubscribe function.
-   */
+  // ---- Pub/Sub (BROAD) -------------------------------------------------------
+
   subscribe<T>(topic: string, handler: SubscribeHandler<T>): UnsubscribeFn {
     this._ensureSubscribed(topic);
-    if (!this.handlers.has(topic)) {
-      this.handlers.set(topic, new Set());
-    }
+    if (!this.handlers.has(topic)) this.handlers.set(topic, new Set());
     this.handlers.get(topic)!.add(handler as SubscribeHandler);
     return () => this._removeHandler(topic, handler as SubscribeHandler);
   }
 
-  /**
-   * Register a request handler for a topic (NARROW / request-reply).
-   * Incoming requests are answered with the value returned by the handler.
-   * Returns an unsubscribe function.
-   */
+  publish<T>(topic: string, payload: T): void {
+    this.worker.port.postMessage({ type: 'broadcast', topic, payload, sourcePageId: PAGE_ID });
+    this.channel?.postMessage({ type: 'broadcast', topic, payload, sourcePageId: PAGE_ID });
+  }
+
+  // ---- Request-Reply (NARROW) ------------------------------------------------
+
   handle<Req, Res>(topic: string, handler: RequestHandler<Req, Res>): UnsubscribeFn {
     this._ensureSubscribed(topic);
     this.requestHandlers.set(topic, handler as RequestHandler);
@@ -118,34 +109,6 @@ export class NirnamBus {
     };
   }
 
-  /**
-   * Register an async-generator handler for a topic (NARROW / streaming reply).
-   * The generator yields chunks; each chunk is delivered to the requester in order.
-   * Returns an unsubscribe function.
-   */
-  handleStream<Req, Res>(topic: string, handler: StreamHandler<Req, Res>): UnsubscribeFn {
-    this._ensureSubscribed(topic);
-    this.streamHandlers.set(topic, handler as StreamHandler);
-    return () => {
-      this.streamHandlers.delete(topic);
-      this._checkUnsubscribe(topic);
-    };
-  }
-
-  /**
-   * Publish a message to all subscribers of a topic (BROAD).
-   * Reaches within-page subscribers via SharedWorker and cross-tab
-   * subscribers via BroadcastChannel.
-   */
-  publish<T>(topic: string, payload: T): void {
-    this.worker.port.postMessage({ type: 'broadcast', topic, payload, sourcePageId: PAGE_ID });
-    this.channel?.postMessage({ type: 'broadcast', topic, payload, sourcePageId: PAGE_ID });
-  }
-
-  /**
-   * Send a request to a handler registered on a topic (NARROW).
-   * Returns a Promise that resolves with the handler's response.
-   */
   request<Req, Res>(topic: string, payload: Req, timeout?: number): Promise<Res> {
     const requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const ms = timeout ?? this.timeout;
@@ -163,10 +126,17 @@ export class NirnamBus {
     });
   }
 
-  /**
-   * Send a streaming request to a handleStream handler.
-   * Returns an AsyncIterable that yields chunks as the handler produces them.
-   */
+  // ---- Streaming (NARROW streaming) ------------------------------------------
+
+  handleStream<Req, Res>(topic: string, handler: StreamHandler<Req, Res>): UnsubscribeFn {
+    this._ensureSubscribed(topic);
+    this.streamHandlers.set(topic, handler as StreamHandler);
+    return () => {
+      this.streamHandlers.delete(topic);
+      this._checkUnsubscribe(topic);
+    };
+  }
+
   requestStream<Req, Res>(topic: string, payload: Req): AsyncIterable<Res> {
     const requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const queue: unknown[] = [];
@@ -198,20 +168,62 @@ export class NirnamBus {
           }
           if (streamError) throw streamError;
           const item = queue.shift();
-          if (item === STREAM_END_SENTINEL) {
-            return { value: undefined as unknown as Res, done: true };
-          }
+          if (item === STREAM_END_SENTINEL) return { value: undefined as unknown as Res, done: true };
           return { value: item as Res, done: false };
         },
       }),
     };
   }
 
-  /** Close the worker port and BroadcastChannel. */
+  // ---- Agent Registration Protocol -------------------------------------------
+
+  /**
+   * Register this bus as an agent with the given capabilities.
+   * The registration is scoped to the SharedWorker process (within-page).
+   */
+  register(registration: AgentRegistration): void {
+    this.worker.port.postMessage({
+      type: 'register',
+      agentId: registration.agentId,
+      capabilities: registration.capabilities,
+      metadata: registration.metadata,
+    });
+  }
+
+  /**
+   * Discover all currently registered agents in the SharedWorker.
+   * Returns a snapshot; subscribe to onAgentChange for live updates.
+   */
+  discoverAgents(): Promise<AgentRegistration[]> {
+    const requestId = `discover-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    return new Promise<AgentRegistration[]>((resolve) => {
+      this.pendingDiscoveries.set(requestId, resolve);
+      this.worker.port.postMessage({ type: 'discover', requestId });
+    });
+  }
+
+  /**
+   * Subscribe to agent join/leave events.
+   * The first call sends a watch-agents message to the worker.
+   * Returns an unsubscribe function.
+   */
+  onAgentChange(handler: AgentChangeHandler): UnsubscribeFn {
+    if (!this.isWatchingAgents) {
+      this.isWatchingAgents = true;
+      this.worker.port.postMessage({ type: 'watch-agents' });
+    }
+    this.agentChangeHandlers.add(handler);
+    return () => this.agentChangeHandlers.delete(handler);
+  }
+
+  // ---- Lifecycle -------------------------------------------------------------
+
   close(): void {
     this.worker.port.close();
     this.channel?.close();
   }
+
+  // ---- Private ---------------------------------------------------------------
 
   private _ensureSubscribed(topic: string): void {
     if (!this.subscribedTopics.has(topic)) {
@@ -298,29 +310,20 @@ export class NirnamBus {
         break;
 
       case 'stream-chunk':
-        if (requestId) {
-          this.pendingStreams.get(requestId)?.push(payload);
-        }
+        if (requestId) this.pendingStreams.get(requestId)?.push(payload);
         break;
 
       case 'stream-end':
         if (requestId) {
           const stream = this.pendingStreams.get(requestId);
-          if (stream) {
-            stream.end();
-            this.pendingStreams.delete(requestId);
-          }
+          if (stream) { stream.end(); this.pendingStreams.delete(requestId); }
         }
         break;
 
       case 'response':
         if (requestId) {
           const p = this.pending.get(requestId);
-          if (p) {
-            clearTimeout(p.timer);
-            this.pending.delete(requestId);
-            p.resolve(payload);
-          }
+          if (p) { clearTimeout(p.timer); this.pending.delete(requestId); p.resolve(payload); }
         }
         break;
 
@@ -345,22 +348,40 @@ export class NirnamBus {
           }
         }
         break;
+
+      case 'agent-list':
+        if (requestId) {
+          const resolve = this.pendingDiscoveries.get(requestId);
+          if (resolve) {
+            this.pendingDiscoveries.delete(requestId);
+            resolve((event.data.agents as AgentRegistration[]) ?? []);
+          }
+        }
+        break;
+
+      case 'agent-joined': {
+        const agent = event.data.agent as AgentRegistration;
+        this.agentChangeHandlers.forEach(h => h({ type: 'join', agent }));
+        break;
+      }
+
+      case 'agent-left': {
+        const agentId = event.data.agentId as string;
+        this.agentChangeHandlers.forEach(h => h({ type: 'leave', agentId }));
+        break;
+      }
     }
   }
 
   private _handleChannelMessage(event: MessageEvent<NirnamMessage>): void {
     const { type, topic, payload, sourcePageId } = event.data;
-    if (sourcePageId === PAGE_ID) return; // already delivered via SharedWorker
+    if (sourcePageId === PAGE_ID) return;
     if (type === 'broadcast' && topic) {
       this.handlers.get(topic)?.forEach(h => h(payload));
     }
   }
 }
 
-/**
- * Create a new NirnamBus instance. Each instance opens its own port to the
- * shared SharedWorker process (same Blob URL + name = same worker, different port).
- */
 export function createBus(options?: NirnamBusOptions): NirnamBus {
   return new NirnamBus(options);
 }

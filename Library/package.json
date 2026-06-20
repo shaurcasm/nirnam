@@ -1,6 +1,6 @@
-{
+﻿{
   "name": "@shaurcasm/nirnam",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "type": "module",
   "main": "dist/index.js",
   "module": "dist/index.esm.js",
@@ -12,6 +12,11 @@
       "import": "./dist/index.esm.js",
       "require": "./dist/index.js",
       "types": "./dist/index.d.ts"
+    },
+    "./mcp": {
+      "import": "./dist/mcp.esm.js",
+      "require": "./dist/mcp.js",
+      "types": "./dist/mcp.d.ts"
     }
   },
   "files": [
@@ -35,11 +40,21 @@
     "micro-frontend",
     "mfe",
     "pub-sub",
-    "request-reply"
+    "request-reply",
+    "mcp",
+    "agents"
   ],
   "author": "Shaurya Singh Pal",
   "license": "ISC",
   "description": "A three-layer hybrid message bus for micro-frontend communication using SharedWorker and BroadcastChannel",
+  "peerDependencies": {
+    "@modelcontextprotocol/sdk": ">=1.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@modelcontextprotocol/sdk": {
+      "optional": true
+    }
+  },
   "devDependencies": {
     "@commitlint/cli": "^18.0.0",
     "@commitlint/config-conventional": "^18.0.0",

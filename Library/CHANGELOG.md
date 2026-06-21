@@ -1,3 +1,10 @@
+# [1.1.0](https://github.com/shaurcasm/nirnam/compare/v1.0.0...v1.1.0) (2026-06-21)
+
+
+### Features
+
+* initial release of @palinc/nirnam ([18a4699](https://github.com/shaurcasm/nirnam/commit/18a46993ff2e9d13f42cba4b1ba8c78662dbe97f))
+
 # 1.0.0 (2026-06-21)
 
 

@@ -1,4 +1,4 @@
-# Angular Host + React Remote Example
+﻿# Angular Host + React Remote Example
 
 This example demonstrates Nirnam being used across framework boundaries — an Angular shell hosting a React micro-frontend.
 
@@ -17,7 +17,7 @@ angular-react/
 ```ts
 // Angular service wrapping the bus
 import { Injectable, OnDestroy } from '@angular/core';
-import { createBus, NirnamBus } from '@shaurcasm/nirnam';
+import { createBus, NirnamBus } from '@palinc/nirnam';
 
 @Injectable({ providedIn: 'root' })
 export class NirnamService implements OnDestroy {
@@ -41,14 +41,14 @@ export class NirnamService implements OnDestroy {
 
 **Old:**
 ```ts
-import { SharedWorkerInstance } from '@shaurcasm/nirnam';
+import { SharedWorkerInstance } from '@palinc/nirnam';
 const worker = new SharedWorkerInstance();
 worker.port.postMessage({ type: 'broadcast', topic: 'my-topic', message: data });
 ```
 
 **New:**
 ```ts
-import { createBus } from '@shaurcasm/nirnam';
+import { createBus } from '@palinc/nirnam';
 const bus = createBus();
 bus.publish('my-topic', data);
 ```

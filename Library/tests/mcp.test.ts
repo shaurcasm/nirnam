@@ -86,6 +86,19 @@ describe('NirnamMCPTransport', () => {
       expect(errors).toHaveLength(1);
       expect(errors[0].message).toBe('handler failure');
     });
+
+    it('onmessage throws but onerror is not set — does not throw (mcp.ts:83 null branch)', async () => {
+      const { bus } = createFakeBus();
+      const transport = new NirnamMCPTransport({ agentId: 'server', bus });
+      transport.onmessage = () => { throw new Error('silent failure'); };
+      // onerror intentionally not set
+
+      await transport.start();
+      expect(() => {
+        (bus as unknown as { _deliver: (t: string, p: unknown) => void })
+          ._deliver('mcp:server', { from: 'client', message: makeMsg('ping') });
+      }).not.toThrow();
+    });
   });
 
   describe('send()', () => {
@@ -130,6 +143,15 @@ describe('NirnamMCPTransport', () => {
 
       await expect(transport.send(makeMsg('ping'))).rejects.toThrow('Cannot send');
       expect(errors).toHaveLength(1);
+    });
+
+    it('throws even when onerror is not set and no target is known (mcp.ts:95 null branch)', async () => {
+      const { bus } = createFakeBus();
+      const transport = new NirnamMCPTransport({ agentId: 'server', bus });
+      // onerror intentionally not set
+      await transport.start();
+
+      await expect(transport.send(makeMsg('ping'))).rejects.toThrow('Cannot send');
     });
 
     it('updates currentSender on each received message', async () => {

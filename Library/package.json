@@ -1,5 +1,5 @@
-{
-  "name": "@shaurcasm/nirnam",
+﻿{
+  "name": "@palinc/nirnam",
   "version": "2.1.0",
   "type": "module",
   "main": "dist/index.js",
@@ -17,6 +17,16 @@
       "import": "./dist/mcp.esm.js",
       "require": "./dist/mcp.js",
       "types": "./dist/mcp.d.ts"
+    },
+    "./react": {
+      "import": "./dist/react.esm.js",
+      "require": "./dist/react.js",
+      "types": "./dist/react.d.ts"
+    },
+    "./angular": {
+      "import": "./dist/angular.esm.js",
+      "require": "./dist/angular.js",
+      "types": "./dist/angular.d.ts"
     }
   },
   "files": [
@@ -29,7 +39,7 @@
     "prebuild": "npm run clean",
     "test": "jest",
     "test:coverage": "jest --coverage",
-    "lint": "eslint src --ext .ts",
+    "lint": "eslint",
     "commit": "git-cz",
     "commitlint": "commitlint --edit"
   },
@@ -48,10 +58,18 @@
   "license": "ISC",
   "description": "A three-layer hybrid message bus for micro-frontend communication using SharedWorker and BroadcastChannel",
   "peerDependencies": {
-    "@modelcontextprotocol/sdk": ">=1.0.0"
+    "@modelcontextprotocol/sdk": ">=1.0.0",
+    "react": ">=17",
+    "rxjs": ">=6"
   },
   "peerDependenciesMeta": {
     "@modelcontextprotocol/sdk": {
+      "optional": true
+    },
+    "react": {
+      "optional": true
+    },
+    "rxjs": {
       "optional": true
     }
   },
@@ -62,13 +80,23 @@
     "@rollup/plugin-node-resolve": "^15.0.0",
     "@rollup/plugin-terser": "^0.4.0",
     "@rollup/plugin-typescript": "^11.0.0",
+    "@semantic-release/changelog": "^6.0.0",
+    "@semantic-release/git": "^10.0.0",
     "@types/jest": "^30.0.0",
     "@types/node": "^24.1.0",
+    "@types/react": "^18.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0",
+    "eslint": "^9.0.0",
+    "globals": "^15.0.0",
     "husky": "^9.0.0",
     "jest": "^30.0.5",
+    "react": "^18.0.0",
     "rimraf": "^5.0.0",
     "rollup": "^4.0.0",
     "rollup-plugin-dts": "^6.0.0",
+    "rxjs": "^7.0.0",
+    "semantic-release": "^24.0.0",
     "ts-jest": "^29.4.0",
     "typescript": "^5.8.3"
   },

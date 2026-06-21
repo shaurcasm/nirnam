@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { createBus } from '@shaurcasm/nirnam';
+﻿import { useEffect, useState } from 'react';
+import { createBus } from '@palinc/nirnam';
 import type { ButtonEvent } from '../events/ButtonEvent';
 
 const bus = createBus();

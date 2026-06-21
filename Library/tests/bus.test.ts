@@ -427,6 +427,24 @@ describe('handleStream / requestStream', () => {
     expect(err.code).toBe(NirnamErrorCode.NO_HANDLER);
   });
 
+  it('requestStream routed to a broadcast-only subscriber sends NO_HANDLER error (bus.ts:309)', async () => {
+    // busA only has a subscribe() handler (no handleStream) but IS in the
+    // worker registry for the topic, so the worker routes the stream request to it.
+    // busA must respond with NO_HANDLER since it has no stream handler.
+    const busA = createBus();
+    const busB = createBus();
+
+    busA.subscribe('data', jest.fn()); // registers busA for 'data', but no stream handler
+
+    const iter = busB.requestStream<unknown, string>('data', null)[Symbol.asyncIterator]();
+    const err = await iter.next().catch(e => e);
+
+    expect(err).toBeInstanceOf(NirnamRequestError);
+    expect(err.code).toBe(NirnamErrorCode.NO_HANDLER);
+    busA.close();
+    busB.close();
+  });
+
   it('handleStream cleanup sends unsubscribe when no other handlers remain', () => {
     const bus = createBus();
     const { worker } = internals(bus);
@@ -549,6 +567,22 @@ describe('BroadcastChannel', () => {
     }).not.toThrow();
   });
 
+  it('BC message arrives after all handlers for the topic are removed (?.forEach null branch)', () => {
+    // Covers `this.handlers.get(topic)?.forEach()` null branch in _handleChannelMessage.
+    const busA = createBus();
+    const busB = createBus();
+    const handler = jest.fn();
+
+    const unsub = busB.subscribe('volatile', handler);
+    unsub(); // removes handler and deletes the handlers Set for this topic
+
+    // busA publish goes to BC; busB channel message handler fires but handlers map has no entry
+    expect(() => busA.publish('volatile', 'late')).not.toThrow();
+    expect(handler).not.toHaveBeenCalled();
+    busA.close();
+    busB.close();
+  });
+
   it('non-broadcast BC messages are ignored', () => {
     const bus = createBus();
     const handler = jest.fn();
@@ -597,6 +631,67 @@ describe('close()', () => {
 // --- Options -----------------------------------------------------------------
 
 describe('options', () => {
+  it('dispatchDOMEvents: true with no window global — publish does not throw', () => {
+    // Covers the `dispatchDOMEvents && typeof window !== 'undefined'` false branch
+    // when dispatchDOMEvents is true but window is not defined (Node env, no mock).
+    const bus = createBus({ dispatchDOMEvents: true });
+    expect(() => bus.publish('counter', 42)).not.toThrow();
+    bus.close();
+  });
+
+  it('publish with useBroadcastChannel: false does not call channel.postMessage', () => {
+    // Covers the `this.channel?.postMessage()` null branch (channel is null).
+    const bus = createBus({ useBroadcastChannel: false });
+    expect(() => bus.publish('topic', 'value')).not.toThrow();
+    bus.close();
+  });
+
+  it('calling an unsubscribe fn twice does not throw (defensive null-set guard)', () => {
+    // Covers the `if (!set) return` early-return branch in _removeHandler.
+    // First call cleans up the Set; second call finds nothing and returns early.
+    const bus = createBus();
+    const unsub = bus.subscribe('topic', jest.fn());
+    unsub();
+    expect(() => unsub()).not.toThrow();
+  });
+
+  it('broadcast worker message for topic with no local handler is silently ignored', () => {
+    // Covers `handlers.get(topic)?.forEach()` null branch in the worker message handler.
+    const bus = createBus();
+    const port = (bus as unknown as { worker: { port: { _receive(d: unknown): void } } }).worker.port;
+    expect(() => {
+      port._receive({ type: 'broadcast', topic: 'unregistered-topic', payload: 'x' });
+    }).not.toThrow();
+    bus.close();
+  });
+
+  it('worker broadcast message without topic field is ignored (`if (topic)` false branch)', () => {
+    const bus = createBus();
+    const port = (bus as unknown as { worker: { port: { _receive(d: unknown): void } } }).worker.port;
+    expect(() => {
+      port._receive({ type: 'broadcast', payload: 'x' }); // no topic
+    }).not.toThrow();
+    bus.close();
+  });
+
+  it('worker stream-end for unknown requestId is ignored (`if (stream)` false branch)', () => {
+    const bus = createBus();
+    const port = (bus as unknown as { worker: { port: { _receive(d: unknown): void } } }).worker.port;
+    expect(() => {
+      port._receive({ type: 'stream-end', requestId: 'no-such-stream' });
+    }).not.toThrow();
+    bus.close();
+  });
+
+  it('handler throwing a non-Error object converts it to string via String(obj) path', async () => {
+    // Covers `(err as Error).message ?? err` branch where .message is undefined.
+    const bus = createBus();
+    bus.handle('throws-object', () => { throw { detail: 'custom err' }; });
+    const err = await bus.request('throws-object', {}).catch(e => e);
+    expect(err).toBeInstanceOf(NirnamRequestError);
+    expect(err.code).toBe(NirnamErrorCode.HANDLER_REJECTED);
+  });
+
   it('workerUrl passes the static URL to SharedWorker constructor', () => {
     const bus = createBus({ workerUrl: '/static/nirnam-worker.js' });
     expect(getLastSharedWorkerUrl()).toBe('/static/nirnam-worker.js');

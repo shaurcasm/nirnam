@@ -1,6 +1,6 @@
-import React, { useEffect, useRef, useState, useCallback } from "react";
-import { createBus } from "@shaurcasm/nirnam";
-import { NirnamMCPTransport } from "@shaurcasm/nirnam/mcp";
+﻿import React, { useEffect, useRef, useState, useCallback } from "react";
+import { createBus } from "@palinc/nirnam";
+import { NirnamMCPTransport } from "@palinc/nirnam/mcp";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 
 const bus = createBus();

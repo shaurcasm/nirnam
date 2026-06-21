@@ -48,7 +48,7 @@ Open **http://localhost:3000** in your browser.
    Loading them also starts their MCP servers — each one calls `server.connect(transport)`
    where the transport is a `NirnamMCPTransport` backed by the Nirnam SharedWorker bus.
 
-2. Module Federation shares `@shaurcasm/nirnam` as a singleton, so all three MFEs
+2. Module Federation shares `@palinc/nirnam` as a singleton, so all three MFEs
    connect to the **same SharedWorker process**. This is essential for agent discovery
    and MCP message routing to work.
 

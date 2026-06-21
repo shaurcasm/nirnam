@@ -72,6 +72,8 @@ export interface NirnamBusOptions {
   useBroadcastChannel?: boolean;
   /** Default timeout in ms for request() calls. Default: 5000. */
   requestTimeout?: number;
+  /** Dispatch a DataEvent on window for every publish() call (opt-in). Default: false. */
+  dispatchDOMEvents?: boolean;
 }
 
 export type UnsubscribeFn = () => void;

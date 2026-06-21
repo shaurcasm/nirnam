@@ -1,5 +1,5 @@
-import { lazy, Suspense, useEffect, useState } from 'react';
-import { createBus } from '@shaurcasm/nirnam';
+﻿import { lazy, Suspense, useEffect, useState } from 'react';
+import { createBus } from '@palinc/nirnam';
 import type { ButtonEventResponse } from './events/ButtonEventResponse';
 import './App.css';
 

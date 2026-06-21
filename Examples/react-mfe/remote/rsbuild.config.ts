@@ -1,4 +1,4 @@
-import { defineConfig } from '@rsbuild/core';
+﻿import { defineConfig } from '@rsbuild/core';
 import { pluginReact } from '@rsbuild/plugin-react';
 import { pluginModuleFederation } from '@module-federation/rsbuild-plugin';
 
@@ -25,7 +25,7 @@ export default defineConfig({
       shared: {
         react: { singleton: true },
         'react-dom': { singleton: true },
-        '@shaurcasm/nirnam': { singleton: true },
+        '@palinc/nirnam': { singleton: true },
       },
     }),
   ],

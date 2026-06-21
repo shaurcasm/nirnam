@@ -14,7 +14,7 @@
  *   const transport = new NirnamMCPTransport({ agentId: 'orchestrator', targetAgentId: 'calc-agent', bus });
  *   await client.connect(transport);
  *
- * Import path: @shaurcasm/nirnam/mcp
+ * Import path: @palinc/nirnam/mcp
  * The MCP SDK (@modelcontextprotocol/sdk) is an optional peer dependency --
  * Nirnam defines compatible interfaces so no hard dependency is needed.
  */

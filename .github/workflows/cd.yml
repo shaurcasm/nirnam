@@ -1,0 +1,78 @@
+name: CD
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  # ── 1. Verify the build is green before anything else ──────────────────────
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: Library
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: Library/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test (with coverage enforcement)
+        run: npm run test:coverage
+
+  # ── 2. Publish to npm — paused here until you approve in GitHub ─────────────
+  #
+  # Set up the "production" environment in:
+  #   GitHub → repo Settings → Environments → New environment → "production"
+  #   Add yourself as a Required reviewer.
+  # GitHub will send you an email/notification and pause this job until you click Approve.
+  release:
+    name: Semantic Release → npm
+    needs: test
+    runs-on: ubuntu-latest
+    environment: production
+
+    permissions:
+      contents: write   # push CHANGELOG.md + version tag
+      issues: write     # semantic-release can close issues
+      pull-requests: write
+
+    defaults:
+      run:
+        working-directory: Library
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # semantic-release needs full history to detect last tag
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: Library/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Release
+        run: npx semantic-release
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

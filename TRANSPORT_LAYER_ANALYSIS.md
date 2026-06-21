@@ -1,4 +1,4 @@
-# Nirnam Transport Layer Analysis
+﻿# Nirnam Transport Layer Analysis
 ## SharedWorker Identity, Cross-Tab Sharing, and the Path to a True MFE/Multi-Agent Bus
 
 ---
@@ -95,7 +95,7 @@ A library that requires a file to be present at a specific public URL breaks the
 
 **Specific issues:**
 
-1. **Consumer must copy the file manually.** The worker script ships inside `node_modules/@shaurcasm/nirnam/dist/`, but it needs to be accessible at `/nirnam-worker.js`. There is no standard npm mechanism that does this automatically.
+1. **Consumer must copy the file manually.** The worker script ships inside `node_modules/@palinc/nirnam/dist/`, but it needs to be accessible at `/nirnam-worker.js`. There is no standard npm mechanism that does this automatically.
 
 2. **Build tool integration required.** Frameworks handle `public/` folders differently — Vite copies them, Webpack needs `CopyWebpackPlugin`, Angular needs `assets` config in `angular.json`. The library must document steps for every major build tool.
 
@@ -123,7 +123,7 @@ Ship official plugins for Vite, Webpack, and Rsbuild that automate the copy:
 
 ```ts
 // vite.config.ts
-import { nirnamPlugin } from '@shaurcasm/nirnam/vite'
+import { nirnamPlugin } from '@palinc/nirnam/vite'
 
 export default { plugins: [nirnamPlugin()] }
 ```
@@ -154,7 +154,7 @@ const workerUrl = new URL('./worker.js', import.meta.url).href;
 new SharedWorker(workerUrl, 'nirnam-message-worker')
 ```
 
-If the library is served from `https://cdn.example.com/@shaurcasm/nirnam@1.0.0/dist/index.esm.js`, the worker resolves to `https://cdn.example.com/@shaurcasm/nirnam@1.0.0/dist/worker.js` — a stable, versioned URL. **This is the cleanest solution for CDN-hosted usage.**
+If the library is served from `https://cdn.example.com/@palinc/nirnam@1.0.0/dist/index.esm.js`, the worker resolves to `https://cdn.example.com/@palinc/nirnam@1.0.0/dist/worker.js` — a stable, versioned URL. **This is the cleanest solution for CDN-hosted usage.**
 
 **Trade-off:** Breaks when the library is bundled inline by Webpack/Rollup (the `import.meta.url` resolves to the bundle's own URL, not a worker file). Works correctly for the UMD/CDN path and for consumers using `external` in their bundler config.
 

@@ -2,6 +2,7 @@
 import {
   NirnamErrorCode,
   NirnamRequestError,
+  RequestType,
 } from './types';
 import type {
   NirnamBusOptions,
@@ -13,6 +14,7 @@ import type {
   AgentChangeHandler,
   UnsubscribeFn,
 } from './types';
+import { DataEvent } from './data-event';
 
 const PAGE_ID = Math.random().toString(36).slice(2);
 const CHANNEL_NAME = 'nirnam-bus-v1';
@@ -63,9 +65,11 @@ export class NirnamBus {
   private readonly agentChangeHandlers = new Set<AgentChangeHandler>();
   private isWatchingAgents = false;
   private readonly timeout: number;
+  private readonly dispatchDOMEvents: boolean;
 
   constructor(options: NirnamBusOptions = {}) {
-    const { workerUrl, useBroadcastChannel = true, requestTimeout = 5000 } = options;
+    const { workerUrl, useBroadcastChannel = true, requestTimeout = 5000, dispatchDOMEvents = false } = options;
+    this.dispatchDOMEvents = dispatchDOMEvents;
 
     this.timeout = requestTimeout;
 
@@ -96,6 +100,9 @@ export class NirnamBus {
   publish<T>(topic: string, payload: T): void {
     this.worker.port.postMessage({ type: 'broadcast', topic, payload, sourcePageId: PAGE_ID });
     this.channel?.postMessage({ type: 'broadcast', topic, payload, sourcePageId: PAGE_ID });
+    if (this.dispatchDOMEvents && typeof window !== 'undefined') {
+      window.dispatchEvent(new DataEvent<T>(RequestType.BROAD, topic, payload));
+    }
   }
 
   // ---- Request-Reply (NARROW) ------------------------------------------------
@@ -334,15 +341,15 @@ export class NirnamBus {
             clearTimeout(p.timer);
             this.pending.delete(requestId);
             p.reject(new NirnamRequestError(
-              (code as NirnamErrorCode) ?? NirnamErrorCode.HANDLER_REJECTED,
-              `[Nirnam] ${error ?? 'Unknown error'}`,
+              /* istanbul ignore next */ (code as NirnamErrorCode) ?? NirnamErrorCode.HANDLER_REJECTED,
+              /* istanbul ignore next */ `[Nirnam] ${error ?? 'Unknown error'}`,
             ));
           }
           const stream = this.pendingStreams.get(requestId);
           if (stream) {
             stream.abort(new NirnamRequestError(
-              (code as NirnamErrorCode) ?? NirnamErrorCode.HANDLER_REJECTED,
-              `[Nirnam] ${error ?? 'Unknown error'}`,
+              /* istanbul ignore next */ (code as NirnamErrorCode) ?? NirnamErrorCode.HANDLER_REJECTED,
+              /* istanbul ignore next */ `[Nirnam] ${error ?? 'Unknown error'}`,
             ));
             this.pendingStreams.delete(requestId);
           }

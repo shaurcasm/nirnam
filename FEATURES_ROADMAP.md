@@ -78,7 +78,7 @@ MCP defines a JSON-RPC 2.0 protocol with built-in transports (stdio, HTTP/SSE, W
 **Planned design:**
 
 ```ts
-import { NirnamMCPTransport } from '@shaurcasm/nirnam/mcp';
+import { NirnamMCPTransport } from '@palinc/nirnam/mcp';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 
@@ -136,20 +136,20 @@ class NirnamMCPTransport implements Transport {
 - The `request` / `handle` bus primitives map cleanly to MCP's request-response pattern. Each MCP call becomes a Nirnam `request`, routing to the agent registered on that topic.
 - Streaming tool results (for LLM token streaming) require the streaming response feature (see Â§1).
 
-**Planned entry point:** `@shaurcasm/nirnam/mcp` â€” a separate subpath export so the MCP SDK is an optional peer dependency and doesn't bloat the core bundle.
+**Planned entry point:** `@palinc/nirnam/mcp` â€” a separate subpath export so the MCP SDK is an optional peer dependency and doesn't bloat the core bundle.
 
 ---
 
 ## 4. DataEvent + DOM Integration
 
-**Status:** Prototype in `nirnam_with_webworker/dataEvents/`. Not yet connected to core.
+**Status:** Complete.
 
 **Purpose:** Allow Nirnam messages to propagate through the browser's standard DOM event system, enabling framework-agnostic event handling via `window.addEventListener` alongside the bus.
 
 **Planned design:**
 
 ```ts
-import { DataEvent, RequestType } from '@shaurcasm/nirnam';
+import { DataEvent, RequestType } from '@palinc/nirnam';
 
 // Dispatch a typed broadcast event on the window
 const event = new DataEvent(RequestType.BROAD, 'counter', 42);
@@ -161,19 +161,41 @@ window.addEventListener('broad_counter', (e: DataEvent<number>) => {
 });
 ```
 
-`DataEvent<S>` already extends `CustomEvent<S>` in the prototype. The missing piece is wiring it to the Nirnam bus so that `bus.publish()` also dispatches the equivalent DOM event (opt-in, to avoid unexpected side-effects).
+**Shipped:**
+- `DataEvent<T>` extends `CustomEvent<T>` — constructor: `new DataEvent(requestType, topic, detail)`
+- Event name: `` `${requestType}_${topic}` `` (e.g. `broad_counter`)
+- `NirnamBusOptions.dispatchDOMEvents?: boolean` — opt-in flag (default: `false`)
+- When enabled, `bus.publish()` calls `window.dispatchEvent(new DataEvent(...))` after the bus dispatch
+- `DataEvent` is exported from the main entry point: `import { DataEvent } from '@palinc/nirnam'`
+
+**Entry point:** `@palinc/nirnam` (main bundle).
 
 ---
 
 ## 5. React / Angular Hooks & Services
 
-**Status:** Not yet implemented.
+**Status:** Complete.
 
 **Purpose:** First-class framework integration so developers don't wire up bus lifecycle manually.
 
+**Shipped:**
+
+**React** (`@palinc/nirnam/react`):
+- `NirnamProvider` — context provider; accepts a pre-created `bus` prop
+- `useNirnam<T>(topic, initialValue?)` — subscribes on mount, unsubscribes on unmount, returns latest value
+- `useNirnamPublish()` — returns a stable generic publish function
+- `useNirnamRequest<Req, Res>()` — returns a function that calls `bus.request()`
+- Peer dependency: `react >= 17`
+
+**Angular** (`@palinc/nirnam/angular`):
+- `NirnamService` — injectable class with RxJS-based API
+- `provideNirnam(options?)` — Angular standalone providers array (Angular 14+)
+- `NirnamModule.forRoot(options?)` — NgModule-style integration
+- Peer dependency: `rxjs >= 6`
+
 **React:**
 ```ts
-import { useNirnam } from '@shaurcasm/nirnam/react';
+import { useNirnam } from '@palinc/nirnam/react';
 
 // Subscribes on mount, unsubscribes on unmount
 const counter = useNirnam<number>('counter');
@@ -225,14 +247,14 @@ class MyComponent {
 **Purpose:** Make Layer 3 (static URL SharedWorker) easy to enable without manual file copy.
 
 **Planned plugins:**
-- `@shaurcasm/nirnam/vite` â€” Vite plugin that copies `worker.js` to `public/` and injects the URL
-- `@shaurcasm/nirnam/rsbuild` â€” Rsbuild/Rspack plugin (same pattern)
-- `@shaurcasm/nirnam/webpack` â€” Webpack `CopyWebpackPlugin` config helper
+- `@palinc/nirnam/vite` â€” Vite plugin that copies `worker.js` to `public/` and injects the URL
+- `@palinc/nirnam/rsbuild` â€” Rsbuild/Rspack plugin (same pattern)
+- `@palinc/nirnam/webpack` â€” Webpack `CopyWebpackPlugin` config helper
 
 **Usage:**
 ```ts
 // vite.config.ts
-import { nirnamPlugin } from '@shaurcasm/nirnam/vite';
+import { nirnamPlugin } from '@palinc/nirnam/vite';
 export default { plugins: [nirnamPlugin()] };
 
 // App code â€” URL auto-injected by plugin

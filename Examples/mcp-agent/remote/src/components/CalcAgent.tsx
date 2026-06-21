@@ -1,6 +1,6 @@
 ﻿import React, { useEffect, useState } from "react";
-import { createBus } from "@shaurcasm/nirnam";
-import { NirnamMCPTransport } from "@shaurcasm/nirnam/mcp";
+import { createBus } from "@palinc/nirnam";
+import { NirnamMCPTransport } from "@palinc/nirnam/mcp";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 

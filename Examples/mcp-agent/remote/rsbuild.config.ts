@@ -14,7 +14,7 @@ export default defineConfig({
       shared: {
         react: { singleton: true, requiredVersion: "^18.3.1" },
         "react-dom": { singleton: true, requiredVersion: "^18.3.1" },
-        "@shaurcasm/nirnam": { singleton: true, requiredVersion: "*" },
+        "@palinc/nirnam": { singleton: true, requiredVersion: "*" },
         "@modelcontextprotocol/sdk": { singleton: true, requiredVersion: "^1.0.0" },
       },
     }),

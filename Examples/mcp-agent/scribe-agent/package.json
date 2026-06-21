@@ -1,4 +1,4 @@
-{
+﻿{
   "name": "mcp-scribe-agent",
   "version": "1.0.0",
   "type": "module",
@@ -9,7 +9,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
-    "@shaurcasm/nirnam": "file:../../../Library",
+    "@palinc/nirnam": "file:../../../Library",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "zod": "^3.23.0"

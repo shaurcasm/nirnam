@@ -56,4 +56,3 @@ export function useNirnamRequest<Req = unknown, Res = unknown>(): (topic: string
     [bus],
   );
 }
-

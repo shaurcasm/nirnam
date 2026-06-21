@@ -1,4 +1,4 @@
-import { RequestType } from './types';
+import { type RequestType } from './types';
 
 /**
  * A typed CustomEvent that wraps a Nirnam bus message for DOM propagation.

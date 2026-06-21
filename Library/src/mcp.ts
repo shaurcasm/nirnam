@@ -90,7 +90,7 @@ export class NirnamMCPTransport {
     const target = this.targetAgentId ?? this.currentSender;
     if (!target) {
       const err = new Error(
-        '[NirnamMCPTransport] Cannot send: no targetAgentId and no message has been received yet.'
+        '[NirnamMCPTransport] Cannot send: no targetAgentId and no message has been received yet.',
       );
       this.onerror?.(err);
       throw err;

@@ -57,6 +57,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0   # semantic-release needs full history to detect last tag
+          ref: main        # always check out the live tip of main, not the stale trigger SHA
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: actions/setup-node@v4

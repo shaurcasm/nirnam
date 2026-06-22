@@ -82,4 +82,53 @@ export default [
     plugins: [dts()],
     external: ['rxjs', /\.css$/],
   },
+  // Agent layer bundle
+  {
+    input: 'src/agents.ts',
+    output: [
+      { file: 'dist/agents.js', format: 'cjs', sourcemap: true },
+      { file: 'dist/agents.esm.js', format: 'esm', sourcemap: true },
+    ],
+    plugins,
+  },
+  // Agent React hooks bundle
+  {
+    input: 'src/agents-react.ts',
+    external: ['react'],
+    output: [
+      { file: 'dist/agents-react.js', format: 'cjs', sourcemap: true },
+      { file: 'dist/agents-react.esm.js', format: 'esm', sourcemap: true },
+    ],
+    plugins,
+  },
+  // Agent testing utilities bundle
+  {
+    input: 'src/agents-testing.ts',
+    output: [
+      { file: 'dist/agents-testing.js', format: 'cjs', sourcemap: true },
+      { file: 'dist/agents-testing.esm.js', format: 'esm', sourcemap: true },
+    ],
+    plugins,
+  },
+  // Type declarations -- agents
+  {
+    input: 'dist/agents.d.ts',
+    output: [{ file: 'dist/agents.d.ts', format: 'es' }],
+    plugins: [dts()],
+    external: [/\.css$/],
+  },
+  // Type declarations -- agents/react
+  {
+    input: 'dist/agents-react.d.ts',
+    output: [{ file: 'dist/agents-react.d.ts', format: 'es' }],
+    plugins: [dts()],
+    external: ['react', /\.css$/],
+  },
+  // Type declarations -- agents/testing
+  {
+    input: 'dist/agents-testing.d.ts',
+    output: [{ file: 'dist/agents-testing.d.ts', format: 'es' }],
+    plugins: [dts()],
+    external: [/\.css$/],
+  },
 ];

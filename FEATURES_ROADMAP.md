@@ -261,3 +261,24 @@ export default { plugins: [nirnamPlugin()] };
 const bus = createBus(); // automatically uses /nirnam-worker.js when plugin is present
 ```
 
+---
+
+## Luxury List
+
+Features deprioritised until all core agent primitives are stable. Revisit after the `@palinc/nirnam/agents` subpath ships and is validated in real use.
+
+### L1. Streaming tool-call capability detection
+
+**What:** Probe the connected LLM endpoint at agent startup to detect whether it supports streaming while tool calls are in progress (not all OpenAI-compat servers do). Switch `chatStream()` to true end-to-end streaming when supported.
+
+**Why deferred:** The current implementation uses non-streaming calls for the tool loop and streams only the final text response — which is correct and works everywhere. True streaming tool calls add parsing complexity and provider-specific edge cases. Core function is not blocked.
+
+### L2. Cross-tab passive agents (scope: 'tab' | 'page')
+
+**What:** A `scope: 'page'` option on `createAgent()` that causes the agent to live in the Layer 3 static SharedWorker, making it accessible across all tabs on the same origin and surviving soft navigations.
+
+**Current behaviour (documented):** Agents run in the browser's main thread and are NOT shared across tabs. Each tab creates its own instances. Agents do NOT survive a page refresh. This is correctly documented in the `agents.ts` entry point JSDoc and in `AGENT_API_DESIGN.md`.
+
+**Why deferred:** Requires significant worker-side changes: the agent's LLM client, tool executor, and File System Access API calls cannot run inside the SharedWorker (no fetch, no DOM APIs). A proxy/message-relay architecture between the shared worker and a designated “host tab” is required. This is a V2 breaking change.
+
+**Temporary workaround for developers:** Use `autoCleanup: true` (default) and re-create agents on page load. The bus's agent registry (`bus.discoverAgents()`) remains accurate because `beforeunload` triggers deregistration.

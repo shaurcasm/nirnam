@@ -27,6 +27,21 @@
       "import": "./dist/angular.esm.js",
       "require": "./dist/angular.js",
       "types": "./dist/angular.d.ts"
+    },
+    "./agents": {
+      "import": "./dist/agents.esm.js",
+      "require": "./dist/agents.js",
+      "types": "./dist/agents.d.ts"
+    },
+    "./agents/react": {
+      "import": "./dist/agents-react.esm.js",
+      "require": "./dist/agents-react.js",
+      "types": "./dist/agents-react.d.ts"
+    },
+    "./agents/testing": {
+      "import": "./dist/agents-testing.esm.js",
+      "require": "./dist/agents-testing.js",
+      "types": "./dist/agents-testing.d.ts"
     }
   },
   "files": [

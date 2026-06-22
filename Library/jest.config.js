@@ -12,9 +12,10 @@ export default {
     '/node_modules/',
     '/dist/',
     'tests/setup\\.ts',
-    'src/worker-source\\.ts',  // embedded worker string, mocked in all tests
-    'src/react\\.ts',          // React hooks, requires jsdom + @testing-library/react
-    'src/angular\\.ts',        // Angular service, requires Angular test setup
+    'src/worker-source\\.ts',   // embedded worker string, mocked in all tests
+    'src/react\\.ts',           // React hooks, requires jsdom + @testing-library/react
+    'src/angular\\.ts',         // Angular service, requires Angular test setup
+    'src/agents-react\\.ts',    // Agent React hooks, requires jsdom + @testing-library/react
   ],
   coverageThreshold: {
     global: {

@@ -1,3 +1,10 @@
+# [1.2.0](https://github.com/shaurcasm/nirnam/compare/v1.1.0...v1.2.0) (2026-06-22)
+
+
+### Features
+
+* browser-native agents framework ([b25b8a9](https://github.com/shaurcasm/nirnam/commit/b25b8a9ec6e7470cde9f9239f68a560d798eac4d))
+
 # [1.1.0](https://github.com/shaurcasm/nirnam/compare/v1.0.0...v1.1.0) (2026-06-21)
 
 

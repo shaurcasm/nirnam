@@ -13,8 +13,11 @@ import type {
   AgentRegistration,
   AgentChangeHandler,
   UnsubscribeFn,
+  PublishOptions,
+  SubscribeOptions,
 } from './types';
 import { DataEvent } from './data-event';
+import { persistMessage, replayMessages, DEFAULT_PERSISTENCE_TTL } from './persistence';
 
 const PAGE_ID = Math.random().toString(36).slice(2);
 const CHANNEL_NAME = 'nirnam-bus-v1';
@@ -66,10 +69,12 @@ export class NirnamBus {
   private isWatchingAgents = false;
   private readonly timeout: number;
   private readonly dispatchDOMEvents: boolean;
+  private readonly defaultTtl: number;
 
   constructor(options: NirnamBusOptions = {}) {
-    const { workerUrl, useBroadcastChannel = true, requestTimeout = 5000, dispatchDOMEvents = false } = options;
+    const { workerUrl, useBroadcastChannel = true, requestTimeout = 5000, dispatchDOMEvents = false, persistence } = options;
     this.dispatchDOMEvents = dispatchDOMEvents;
+    this.defaultTtl = persistence?.defaultTtl ?? DEFAULT_PERSISTENCE_TTL;
 
     this.timeout = requestTimeout;
 
@@ -90,18 +95,26 @@ export class NirnamBus {
 
   // ---- Pub/Sub (BROAD) -------------------------------------------------------
 
-  subscribe<T>(topic: string, handler: SubscribeHandler<T>): UnsubscribeFn {
+  subscribe<T>(topic: string, handler: SubscribeHandler<T>, options?: SubscribeOptions): UnsubscribeFn {
     this._ensureSubscribed(topic);
     if (!this.handlers.has(topic)) this.handlers.set(topic, new Set());
     this.handlers.get(topic)!.add(handler as SubscribeHandler);
+    if (options?.replay && options.replay > 0) {
+      replayMessages(topic, options.replay)
+        .then(messages => messages.forEach(m => (handler as SubscribeHandler)(m.payload)))
+        .catch(() => {});
+    }
     return () => this._removeHandler(topic, handler as SubscribeHandler);
   }
 
-  publish<T>(topic: string, payload: T): void {
+  publish<T>(topic: string, payload: T, options?: PublishOptions): void {
     this.worker.port.postMessage({ type: 'broadcast', topic, payload, sourcePageId: PAGE_ID });
     this.channel?.postMessage({ type: 'broadcast', topic, payload, sourcePageId: PAGE_ID });
     if (this.dispatchDOMEvents && typeof window !== 'undefined') {
       window.dispatchEvent(new DataEvent<T>(RequestType.BROAD, topic, payload));
+    }
+    if (options?.persist) {
+      persistMessage(topic, payload, options.ttl ?? this.defaultTtl).catch(() => {});
     }
   }
 

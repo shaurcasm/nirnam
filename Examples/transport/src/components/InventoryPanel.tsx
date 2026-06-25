@@ -47,10 +47,14 @@ export default function InventoryPanel({ log }: { log: Log }) {
     );
 
     // Display alerts broadcast by the host.
-    const unsubAlert = bus.subscribe<{ message: string }>("system:alert", (payload) => {
-      log({ service: "Inv", color: "#b45309", kind: "sub", topic: "system:alert", data: payload.message });
-      setAlerts(p => [...p.slice(-4), payload.message]);
-    });
+    const unsubAlert = bus.subscribe<{ message: string }>(
+      "system:alert",
+      (payload) => {
+        log({ service: "Inv", color: "#b45309", kind: "sub", topic: "system:alert", data: payload.message });
+        setAlerts(p => [...p.slice(-4), payload.message]);
+      },
+      { replay: 5 },
+    );
 
     return () => {
       unsubOrder();

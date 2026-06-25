@@ -65,6 +65,21 @@ export interface NirnamMessage<T = unknown> {
   agent?: AgentRegistration;
 }
 
+export interface PublishOptions {
+  /** Persist this message to IndexedDB so late subscribers can replay it. */
+  persist?: boolean;
+  /** Time-to-live in ms for this persisted message. Overrides bus-level defaultTtl. */
+  ttl?: number;
+}
+
+export interface SubscribeOptions {
+  /**
+   * Replay the last N persisted messages on this topic immediately after subscribing.
+   * Only messages that were published with `{ persist: true }` and have not expired are replayed.
+   */
+  replay?: number;
+}
+
 export interface NirnamBusOptions {
   /** Opt-in static worker URL (Layer 3). Enables true cross-tab SharedWorker sharing. */
   workerUrl?: string;
@@ -74,6 +89,11 @@ export interface NirnamBusOptions {
   requestTimeout?: number;
   /** Dispatch a DataEvent on window for every publish() call (opt-in). Default: false. */
   dispatchDOMEvents?: boolean;
+  /** IndexedDB persistence options. */
+  persistence?: {
+    /** Default TTL in ms for persisted messages. Default: 60000 (1 minute). */
+    defaultTtl?: number;
+  };
 }
 
 export type UnsubscribeFn = () => void;

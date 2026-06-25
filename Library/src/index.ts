@@ -12,4 +12,6 @@ export type {
   AgentChangeEvent,
   AgentChangeHandler,
   UnsubscribeFn,
+  PublishOptions,
+  SubscribeOptions,
 } from './types';

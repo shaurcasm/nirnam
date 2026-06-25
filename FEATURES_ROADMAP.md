@@ -227,16 +227,20 @@ class MyComponent {
 
 ## 6. IndexedDB Message Persistence (Late-Subscriber Replay)
 
-**Status:** Planned.
+**Status:** Complete.
 
-**Purpose:** When a new agent or tab joins, it can replay recent messages on a topic â€” useful for catching up on tool call history in multi-agent LLM scenarios.
+**Purpose:** When a new agent or tab joins, it can replay recent messages on a topic — useful for catching up on tool call history in multi-agent LLM scenarios.
 
-**Design (from TRANSPORT_LAYER_ANALYSIS.md Â§4.2):**
-- Producer writes to IndexedDB on `publish`
-- BroadcastChannel signals new message
-- Consumer reads from IndexedDB on join to replay missed events
-- Opt-in per topic: `bus.publish('my-topic', data, { persist: true, ttl: 60000 })`
-- `bus.subscribe('my-topic', handler, { replay: 10 })` â€” replay last 10 messages on subscribe
+**Shipped:**
+- `bus.publish('my-topic', data, { persist: true, ttl?: number })` — opt-in per-message persistence; `ttl` defaults to `persistence.defaultTtl` on the bus options (default: 60 000 ms)
+- `bus.subscribe('my-topic', handler, { replay: 10 })` — replay last N non-expired messages immediately after subscribing, in chronological order
+- `NirnamBusOptions.persistence.defaultTtl` — bus-level default TTL, overridable per publish
+- Each persisted message carries a UUID `messageId` as IDB primary key — duplicate `put()` calls for the same ID are idempotent (cross-tab deduplication is safe by design)
+- Expired records are pruned asynchronously after every write via a cursor scan on the `by_expires` index — no background timers, no garbage accumulation
+- `seq` counter (monotonically increasing within a session) tie-breaks same-millisecond writes so `replay` order is always deterministic
+- IDB schema: `nirnam-persistence-v1` / `messages` store, indexed by `topic` and `expiresAt`
+
+**Cross-tab & cross-refresh:** IndexedDB is origin-scoped browser storage — the persistence layer already works across all open tabs and survives page refreshes without Feature 7. Feature 7 (static URL SharedWorker) would optionally centralise writes into the shared worker for contention-free multi-tab publishing, but the read path is identical either way.
 
 ---
 

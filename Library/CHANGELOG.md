@@ -1,3 +1,10 @@
+# [1.4.0](https://github.com/shaurcasm/nirnam/compare/v1.3.0...v1.4.0) (2026-06-25)
+
+
+### Features
+
+* static worker deployment tooling (build plugin) + cross tab passive agents ([ba360a2](https://github.com/shaurcasm/nirnam/commit/ba360a246a6611ca0c15985392726fd8bded072c))
+
 # [1.3.0](https://github.com/shaurcasm/nirnam/compare/v1.2.0...v1.3.0) (2026-06-25)
 
 

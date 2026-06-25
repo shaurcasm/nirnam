@@ -53,6 +53,14 @@ export interface AgentConfig {
   agentId?: string;
   llm: LLMConfig;
   mode?: 'active' | 'passive';
+  /**
+   * `'tab'` (default): agent lives in this tab only, no cross-tab sharing.
+   * `'page'`: agent registers bus handlers so other tabs can call it via an
+   * `AgentProxy`.  Requires a Layer 3 (static URL SharedWorker) bus for
+   * true cross-tab routing.  History is automatically persisted to IndexedDB
+   * and restored on the next page load when a stable `agentId` is provided.
+   */
+  scope?: 'tab' | 'page';
   systemPrompt?: string;
   bus?: NirnamBus;
   tools?: ToolDefinition[];

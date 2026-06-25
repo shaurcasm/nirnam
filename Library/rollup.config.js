@@ -110,6 +110,35 @@ export default [
     ],
     plugins,
   },
+  // Vite plugin bundle (node:fs / node:path stay external; worker source is inlined)
+  {
+    input: 'src/vite.ts',
+    external: ['node:fs', 'node:path'],
+    output: [
+      { file: 'dist/vite.js', format: 'cjs', sourcemap: true },
+      { file: 'dist/vite.esm.js', format: 'esm', sourcemap: true },
+    ],
+    plugins,
+  },
+  // Rsbuild plugin bundle
+  {
+    input: 'src/rsbuild.ts',
+    external: ['node:fs', 'node:path'],
+    output: [
+      { file: 'dist/rsbuild.js', format: 'cjs', sourcemap: true },
+      { file: 'dist/rsbuild.esm.js', format: 'esm', sourcemap: true },
+    ],
+    plugins,
+  },
+  // Webpack plugin bundle (no fs writes; worker emitted as webpack asset)
+  {
+    input: 'src/webpack.ts',
+    output: [
+      { file: 'dist/webpack.js', format: 'cjs', sourcemap: true },
+      { file: 'dist/webpack.esm.js', format: 'esm', sourcemap: true },
+    ],
+    plugins,
+  },
   // Type declarations -- agents
   {
     input: 'dist/agents.d.ts',
@@ -128,6 +157,27 @@ export default [
   {
     input: 'dist/agents-testing.d.ts',
     output: [{ file: 'dist/agents-testing.d.ts', format: 'es' }],
+    plugins: [dts()],
+    external: [/\.css$/],
+  },
+  // Type declarations -- vite
+  {
+    input: 'dist/vite.d.ts',
+    output: [{ file: 'dist/vite.d.ts', format: 'es' }],
+    plugins: [dts()],
+    external: ['node:fs', 'node:path', /\.css$/],
+  },
+  // Type declarations -- rsbuild
+  {
+    input: 'dist/rsbuild.d.ts',
+    output: [{ file: 'dist/rsbuild.d.ts', format: 'es' }],
+    plugins: [dts()],
+    external: ['node:fs', 'node:path', /\.css$/],
+  },
+  // Type declarations -- webpack
+  {
+    input: 'dist/webpack.d.ts',
+    output: [{ file: 'dist/webpack.d.ts', format: 'es' }],
     plugins: [dts()],
     external: [/\.css$/],
   },

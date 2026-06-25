@@ -49,6 +49,40 @@ afterEach(() => {
   jest.useRealTimers();
 });
 
+// --- resolveWorkerUrl / Layer 3 static URL -----------------------------------
+
+describe('resolveWorkerUrl', () => {
+  it('uses blob URL by default (Layer 2)', () => {
+    createBus();
+    expect(getLastSharedWorkerUrl()).toBe('blob:mock-url');
+  });
+
+  it('uses explicit workerUrl option when provided', () => {
+    createBus({ workerUrl: '/explicit-worker.js' });
+    expect(getLastSharedWorkerUrl()).toBe('/explicit-worker.js');
+  });
+
+  describe('__NIRNAM_STATIC_WORKER_URL__ injection (Layer 3)', () => {
+    beforeEach(() => {
+      (globalThis as Record<string, unknown>).__NIRNAM_STATIC_WORKER_URL__ =
+        '/nirnam-worker.js';
+    });
+    afterEach(() => {
+      delete (globalThis as Record<string, unknown>).__NIRNAM_STATIC_WORKER_URL__;
+    });
+
+    it('uses the injected static URL when present', () => {
+      createBus();
+      expect(getLastSharedWorkerUrl()).toBe('/nirnam-worker.js');
+    });
+
+    it('explicit workerUrl option takes precedence over injected global', () => {
+      createBus({ workerUrl: '/override.js' });
+      expect(getLastSharedWorkerUrl()).toBe('/override.js');
+    });
+  });
+});
+
 // --- subscribe / publish (BROAD) ---------------------------------------------
 
 describe('subscribe / publish', () => {

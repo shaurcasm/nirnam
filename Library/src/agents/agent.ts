@@ -3,6 +3,8 @@ import type { NirnamBus } from '../bus';
 import type { UnsubscribeFn, RequestHandler, SubscribeHandler } from '../types';
 import { callLLM, callLLMStream } from './llm-client';
 import { buildFilesystemTools } from './fs-tools';
+import { saveAgentHistory, loadAgentHistory } from './history-store';
+import type { PageChatRequest, PageRunRequest } from './agent-proxy';
 import type {
   AgentConfig,
   AgentStatus,
@@ -51,6 +53,8 @@ export class NirnamAgent {
   private _currentAbort: AbortController | null = null;
   private _startTime: number;
   private _stats: AgentStats = { messagesProcessed: 0, toolCallsExecuted: 0, tokensUsed: 0, uptime: 0 };
+  /** Serialises concurrent page-scope bus requests so history stays consistent. */
+  private _pageOpQueue: Promise<unknown> = Promise.resolve();
 
   constructor(config: AgentConfig) {
     this._config = config;
@@ -83,10 +87,39 @@ export class NirnamAgent {
   // ---- Lifecycle ------------------------------------------------------------
 
   private async _initialize(): Promise<void> {
+    const metadata: Record<string, unknown> = { mode: this._config.mode ?? 'active' };
+
+    if (this._config.scope === 'page') {
+      metadata.scope = 'page';
+
+      // Restore persisted history from IndexedDB so conversations survive page reloads.
+      const saved = await loadAgentHistory(this.agentId).catch(() => null);
+      if (saved && saved.length > 0) this.importHistory(saved);
+
+      // Register cross-tab bus handlers so AgentProxy instances in other tabs can
+      // call chat(), run(), and chatStream() on this agent.
+      const self = this;
+      const chatUnsub = this._bus.handle<PageChatRequest, string>(
+        `${this.agentId}:__chat`,
+        (req) => this._enqueuePageOp(() => this.chat(req.message, { maxIterations: req.maxIterations })),
+      );
+      const runUnsub = this._bus.handle<PageRunRequest, string>(
+        `${this.agentId}:__run`,
+        (req) => this._enqueuePageOp(() => this.run(req.task, { maxIterations: req.maxIterations })),
+      );
+      const streamUnsub = this._bus.handleStream<PageChatRequest, string>(
+        `${this.agentId}:__stream`,
+        async function* (req) {
+          yield* self.chatStream(req.message, { maxIterations: req.maxIterations });
+        },
+      );
+      this._busUnsubs.push(chatUnsub, runUnsub, streamUnsub);
+    }
+
     this._bus.register({
       agentId: this.agentId,
       capabilities: [...this._tools.keys()],
-      metadata: { mode: this._config.mode ?? 'active' },
+      metadata,
     });
 
     if (this._config.autoCleanup !== false && typeof window !== 'undefined') {
@@ -96,6 +129,21 @@ export class NirnamAgent {
     }
 
     this._setStatus('ready');
+  }
+
+  /** Enqueue a page-scope operation so concurrent bus requests run sequentially. */
+  private _enqueuePageOp<T>(fn: () => Promise<T>): Promise<T> {
+    const op = this._pageOpQueue.then(fn, fn) as Promise<T>;
+    this._pageOpQueue = op.then(() => {}, () => {});
+    return op;
+  }
+
+  /** Fire-and-forget history persistence for page-scoped agents. */
+  private _persistHistory(): void {
+    if (this._config.scope !== 'page') return;
+    saveAgentHistory(this.agentId, [...this._internalHistory]).catch(() => {
+      this._log('warn', 'Failed to persist agent history to IndexedDB.');
+    });
   }
 
   stop(): void {
@@ -293,7 +341,9 @@ export class NirnamAgent {
     this._addUserMessage(message);
 
     try {
-      return await this._runLoop(abort.signal, options?.maxIterations ?? 10);
+      const result = await this._runLoop(abort.signal, options?.maxIterations ?? 10);
+      this._persistHistory();
+      return result;
     } finally {
       this._endOperation(abort);
     }
@@ -327,6 +377,7 @@ export class NirnamAgent {
       // Commit final message to history
       this._addAssistantMessage(accumulated);
       this._stats.messagesProcessed++;
+      this._persistHistory();
     } finally {
       this._endOperation(abort);
     }
@@ -351,6 +402,8 @@ export class NirnamAgent {
             this._publicHistory.push({ id: genId(), role: m.role as 'user' | 'assistant', content: m.content!, timestamp: Date.now() });
           }
         }
+      } else {
+        this._persistHistory();
       }
       return result;
     } finally {

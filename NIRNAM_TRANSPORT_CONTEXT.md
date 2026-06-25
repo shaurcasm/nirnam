@@ -1,6 +1,7 @@
 # @palinc/nirnam — Transport Layer Context
 
-> Authoritative reference for the core Nirnam bus, MCP transport, React integration, and all exported types.
+> Authoritative reference for the core Nirnam bus, MCP transport, React integration,
+> build plugins (Layer 3), cross-tab agent routing, and all exported types.
 > Generated from source — keep in sync with `Library/src/`.
 
 ---
@@ -15,7 +16,7 @@ Nirnam runs a **three-layer hybrid message bus** in every browser context that i
 | 2 | Blob-URL `SharedWorker` | Within-page (all bundles on the same tab) | Pub/sub, request-reply, streaming, agent registry |
 | 3 | Static-URL `SharedWorker` (opt-in) | True cross-tab + same page | All features, persists across tabs |
 
-`createBus()` defaults to Layer 1 + 2. Pass `workerUrl` to activate Layer 3.
+`createBus()` defaults to Layer 1 + 2. Pass `workerUrl` — or activate a build plugin — to engage Layer 3.
 
 Each MFE (or component) calls `createBus()` independently. All instances on the same page share the **same SharedWorker process**, so messages route between them without any module-level state sharing.
 
@@ -38,9 +39,12 @@ Subpaths:
 | `@palinc/nirnam` | Core bus (all environments) |
 | `@palinc/nirnam/react` | `NirnamProvider`, `useNirnam`, `useNirnamPublish`, `useNirnamRequest` |
 | `@palinc/nirnam/mcp` | `NirnamMCPTransport` |
-| `@palinc/nirnam/agents` | Agent API (see NIRNAM_AGENTS_CONTEXT.md) |
+| `@palinc/nirnam/agents` | Agent API — `createAgent`, `AgentProxy`, `createAgentProxy`, etc. |
 | `@palinc/nirnam/agents/react` | Agent React hooks |
 | `@palinc/nirnam/agents/testing` | `mockLLM`, `scenarioMock` for tests |
+| `@palinc/nirnam/vite` | Vite plugin for Layer 3 static worker deployment |
+| `@palinc/nirnam/rsbuild` | Rsbuild plugin for Layer 3 static worker deployment |
+| `@palinc/nirnam/webpack` | Webpack 5 plugin for Layer 3 static worker deployment |
 
 ---
 
@@ -66,10 +70,28 @@ interface NirnamBusOptions {
   useBroadcastChannel?: boolean; // Default: true
   requestTimeout?: number;       // Default: 5000 ms
   dispatchDOMEvents?: boolean;   // Default: false
+  persistence?: {
+    defaultTtl?: number;         // Default TTL for persisted messages, ms. Default: 60 000.
+  };
 }
 ```
 
-**`workerUrl`** — The key toggle for cross-tab support. Without it, Nirnam creates a Blob-URL SharedWorker that is unique per tab (Layer 2). With it, all tabs loading the same static URL share the same SharedWorker process (Layer 3).
+**`workerUrl`** — The key toggle for cross-tab request-reply. Without it, Nirnam creates a Blob-URL SharedWorker unique per tab (Layer 2 — requests stay within the page). With it, all tabs loading the same static URL share one SharedWorker process (Layer 3 — requests route cross-tab).
+
+### Auto-injection via build plugins
+
+When a build plugin is active, `__NIRNAM_STATIC_WORKER_URL__` is injected at bundle time and `createBus()` picks it up automatically — no `workerUrl` option needed:
+
+```ts
+// vite.config.ts
+import { nirnamPlugin } from '@palinc/nirnam/vite';
+export default { plugins: [nirnamPlugin()] };
+
+// App code — URL auto-injected, no option needed
+const bus = createBus(); // uses /nirnam-worker.js automatically
+```
+
+Explicit `workerUrl` always takes precedence over the injected global.
 
 ---
 
@@ -85,22 +107,29 @@ bus.publish<CartEvent>('cart:updated', { itemCount: 3, total: 99 });
 const unsub = bus.subscribe<CartEvent>('cart:updated', (event) => {
   console.log(event.itemCount); // 3
 });
-
-// Later — always clean up
 unsub();
+```
+
+**Persistence (opt-in):**
+
+```ts
+// Persist this message to IndexedDB for late-joining subscribers
+bus.publish('my:topic', data, { persist: true, ttl: 30_000 });
+
+// Replay last 10 persisted messages immediately after subscribing
+bus.subscribe('my:topic', handler, { replay: 10 });
 ```
 
 **Guarantees:**
 - Publish is fire-and-forget: no confirmation, no error if no subscribers exist.
 - A publisher does NOT receive its own messages (SharedWorker deduplicates via `sourcePageId`).
 - BroadcastChannel duplicates to other tabs; the SharedWorker routes within-page only.
-- Handlers are called synchronously within the SharedWorker's message event; throw inside a handler does not propagate to the publisher.
 
 ---
 
 ## Request-Reply — `request` / `handle`
 
-Narrow (point-to-point) request-reply. Only one handler per topic is supported — last registered wins.
+Narrow (point-to-point) request-reply. Only one handler per topic at a time — last registered wins.
 
 ```ts
 // Handler — registers on this bus instance
@@ -108,11 +137,11 @@ const unsubHandle = bus.handle<{ userId: string }, UserProfile>(
   'user:getProfile',
   async (payload) => {
     const user = await db.find(payload.userId);
-    return user;   // returned value is sent back to requester
+    return user;
   }
 );
 
-// Requester — on a different bus instance (different MFE)
+// Requester — on a different bus instance (different MFE or tab)
 const profile = await bus.request<{ userId: string }, UserProfile>(
   'user:getProfile',
   { userId: 'u-123' },
@@ -130,25 +159,20 @@ try {
 } catch (err) {
   if (err instanceof NirnamRequestError) {
     switch (err.code) {
-      case NirnamErrorCode.TIMEOUT:
-        // No response within timeout window
-        break;
-      case NirnamErrorCode.NO_HANDLER:
-        // Topic exists but no handler is registered
-        break;
-      case NirnamErrorCode.HANDLER_REJECTED:
-        // Handler threw an error
-        break;
+      case NirnamErrorCode.TIMEOUT:          break; // no response within timeout
+      case NirnamErrorCode.NO_HANDLER:       break; // no handler registered for topic
+      case NirnamErrorCode.HANDLER_REJECTED: break; // handler threw
     }
   }
 }
 ```
 
+**Cross-tab routing:** With Layer 3 (static SharedWorker), `request()` / `handle()` route across browser tabs. This is how `AgentProxy` reaches a `scope: 'page'` agent in another tab — the proxy calls `bus.request('${agentId}:__chat', ...)` and the host tab's bus has `bus.handle('${agentId}:__chat', ...)` registered.
+
 **Guarantees:**
-- Exactly one handler receives the request — the most recently registered one for that topic.
-- `handle()` returns an unsubscribe function that deregisters the handler.
-- If the handler is async, the response is sent when the promise resolves.
+- Exactly one handler receives the request.
 - Handler errors become `HANDLER_REJECTED` rejections on the requester side.
+- Worker uses round-robin when multiple handlers share a topic (from multiple registrations).
 
 ---
 
@@ -182,11 +206,7 @@ handleStream<Req, Res>(topic: string, handler: (payload: Req) => AsyncIterable<R
 requestStream<Req, Res>(topic: string, payload: Req): AsyncIterable<Res>
 ```
 
-**Guarantees:**
-- Handler must return an `AsyncIterable` (plain async generator functions satisfy this).
-- Backpressure is not applied — chunks are queued on the consumer side.
-- If the handler throws mid-stream, the consumer's `for await` loop rejects.
-- One handler per topic (same as `handle`).
+**Cross-tab streaming:** With Layer 3, `handleStream` / `requestStream` also work across tabs. `AgentProxy.chatStream()` uses `requestStream('${agentId}:__stream', ...)` to receive token chunks from the host tab.
 
 ---
 
@@ -215,22 +235,24 @@ interface AgentRegistration {
 
 Registration is automatically removed when the port closes (tab close, `bus.close()`).
 
+For `scope: 'page'` agents, the metadata always includes `{ scope: 'page' }`. Other tabs can discover this and use `createAgentProxy()` to call it.
+
 ### Discover (one-shot snapshot)
 
 ```ts
 const agents: AgentRegistration[] = await bus.discoverAgents();
-// [ { agentId: 'cart-service', capabilities: [...] }, ... ]
+// [ { agentId: 'my-agent', capabilities: [...], metadata: { scope: 'page' } }, ... ]
+
+// Find a page-scoped agent to proxy
+const pageAgents = agents.filter(a => a.metadata?.scope === 'page');
 ```
 
 ### Watch (live updates)
 
 ```ts
 const unsub = bus.onAgentChange((event: AgentChangeEvent) => {
-  if (event.type === 'join') {
-    console.log('joined:', event.agent.agentId);
-  } else {
-    console.log('left:', event.agentId);
-  }
+  if (event.type === 'join') console.log('joined:', event.agent.agentId);
+  else console.log('left:', event.agentId);
 });
 ```
 
@@ -240,7 +262,106 @@ type AgentChangeEvent =
   | { type: 'leave'; agentId: string };
 ```
 
-The first call to `onAgentChange` sends a `watch-agents` message to the worker, which starts streaming join/leave events until the port closes or all watchers unsubscribe.
+---
+
+## IndexedDB Message Persistence
+
+```ts
+// Persist messages at publish-time (opt-in per-publish)
+bus.publish('my:topic', data, { persist: true, ttl?: number });
+
+// Replay last N messages on subscribe (received immediately after subscribing)
+bus.subscribe('my:topic', handler, { replay: 10 });
+```
+
+- Each persisted message gets a UUID `messageId` as IDB primary key.
+- Duplicate `put()` calls for the same `messageId` are idempotent — safe for cross-tab deduplication.
+- Expired records are pruned asynchronously after every write (no background timers).
+- IDB schema: `nirnam-persistence-v1` / `messages` store, indexed by `topic` and `expiresAt`.
+
+> **Separate from agent history persistence:** `scope: 'page'` agents persist their conversation history in a different IDB database: `nirnam-agent-history-v1` / `histories` store.
+
+---
+
+## Layer 3 Static Worker Build Plugins
+
+### Why Layer 3?
+
+Without a build plugin, each tab's `createBus()` creates a unique Blob-URL SharedWorker. Blob URLs are per-tab, so different tabs get different worker processes — cross-tab `request()` / `handle()` fails.
+
+With a build plugin, all tabs load the worker from the same static URL. The browser shares the single process across tabs, enabling cross-tab request-reply and streaming.
+
+### `@palinc/nirnam/vite`
+
+```ts
+// vite.config.ts
+import { nirnamPlugin } from '@palinc/nirnam/vite';
+
+export default {
+  plugins: [nirnamPlugin()],
+  // or with custom path:
+  plugins: [nirnamPlugin({ workerPath: 'workers/bus.js' })],
+};
+```
+
+What it does:
+1. Copies the bundled worker source to `<publicDir>/nirnam-worker.js` (configurable).
+2. Injects `__NIRNAM_STATIC_WORKER_URL__ = "/nirnam-worker.js"` via Vite's `define`.
+
+```ts
+export interface NirnamPluginOptions {
+  workerPath?: string;  // Default: 'nirnam-worker.js'. Relative to publicDir.
+}
+
+export function nirnamPlugin(options?: NirnamPluginOptions): Plugin
+```
+
+### `@palinc/nirnam/rsbuild`
+
+```ts
+// rsbuild.config.ts
+import { nirnamRsbuildPlugin } from '@palinc/nirnam/rsbuild';
+
+export default defineConfig({
+  plugins: [nirnamRsbuildPlugin()],
+});
+```
+
+What it does:
+1. Injects `__NIRNAM_STATIC_WORKER_URL__` via `source.define`.
+2. Copies the worker to `<root>/public/nirnam-worker.js` on both build and dev-server start.
+
+### `@palinc/nirnam/webpack`
+
+```js
+// webpack.config.js
+const { NirnamWebpackPlugin } = require('@palinc/nirnam/webpack');
+
+module.exports = {
+  plugins: [new NirnamWebpackPlugin()],
+  // or:
+  plugins: [new NirnamWebpackPlugin({ workerPath: 'workers/bus.js' })],
+};
+```
+
+What it does:
+1. Applies an internal `DefinePlugin` to inject `__NIRNAM_STATIC_WORKER_URL__`.
+2. Emits the worker source as a Webpack compilation asset via `compilation.emitAsset()`.
+
+### How the build-time injection works
+
+`bus.ts` declares `__NIRNAM_STATIC_WORKER_URL__: string | undefined` as an ambient global:
+
+```ts
+declare const __NIRNAM_STATIC_WORKER_URL__: string | undefined;
+```
+
+`resolveWorkerUrl()` checks it in priority order:
+1. Explicit `workerUrl` option passed to `createBus()`.
+2. `__NIRNAM_STATIC_WORKER_URL__` injected at build time by a plugin.
+3. Blob URL fallback (Layer 2).
+
+Without a plugin, the identifier stays `undefined` at runtime — Layer 2 behaviour is unchanged.
 
 ---
 
@@ -255,18 +376,13 @@ bus.close();
 // Any registered handlers are removed.
 ```
 
-In an MFE, tie the bus to the module lifetime:
-
+In an MFE:
 ```ts
-// Module-level singleton (one per MFE bundle)
 const bus = createBus();
-
-// Cleanup when the MFE unloads
 window.addEventListener('beforeunload', () => bus.close(), { once: true });
 ```
 
-In a React component:
-
+In React:
 ```ts
 const bus = useMemo(() => createBus(), []);
 useEffect(() => () => bus.close(), [bus]);
@@ -287,8 +403,6 @@ import {
 
 ### `NirnamProvider`
 
-Wraps a subtree with a bus instance. All hooks below require this provider.
-
 ```tsx
 const bus = useMemo(() => createBus(), []);
 useEffect(() => () => bus.close(), [bus]);
@@ -302,25 +416,20 @@ return (
 
 ### `useNirnam<T>(topic, initialValue?)` → `T | undefined`
 
-Subscribes to a topic and returns the latest received value. Re-renders on each new message. Auto-unsubscribes on unmount.
+Subscribes to a topic and returns the latest received value. Auto-unsubscribes on unmount.
 
 ```tsx
 const cartTotal = useNirnam<number>('cart:total', 0);
-// Updates whenever any bus publishes to 'cart:total'
 ```
 
 ### `useNirnamPublish()` → `(topic, payload) => void`
 
-Returns a stable publish function bound to the provider's bus.
-
 ```tsx
 const publish = useNirnamPublish();
-// publish('user:logout', { reason: 'timeout' });
+publish('user:logout', { reason: 'timeout' });
 ```
 
 ### `useNirnamRequest<Req, Res>()` → `(topic, payload, timeout?) => Promise<Res>`
-
-Returns a stable request function bound to the provider's bus.
 
 ```tsx
 const request = useNirnamRequest<void, User[]>();
@@ -331,7 +440,7 @@ const users = await request('users:list', undefined, 5000);
 
 ## MCP Transport — `@palinc/nirnam/mcp`
 
-Adapts the Nirnam bus as an MCP-compatible `Transport`, allowing MCP servers and clients to communicate via the SharedWorker without a network socket.
+Adapts the Nirnam bus as an MCP-compatible `Transport`.
 
 ```ts
 import { NirnamMCPTransport } from '@palinc/nirnam/mcp';
@@ -349,10 +458,7 @@ server.tool('add', { a: z.number(), b: z.number() }, async ({ a, b }) => ({
   content: [{ type: 'text', text: String(a + b) }],
 }));
 
-const transport = new NirnamMCPTransport({
-  agentId: 'calc-agent',   // Listens on topic mcp:calc-agent
-  bus,
-});
+const transport = new NirnamMCPTransport({ agentId: 'calc-agent', bus });
 await server.connect(transport);
 ```
 
@@ -363,8 +469,8 @@ const bus = createBus();
 const client = new Client({ name: 'orchestrator', version: '1.0.0' });
 
 const transport = new NirnamMCPTransport({
-  agentId: 'orchestrator',          // Client's own ID (receives responses on mcp:orchestrator)
-  targetAgentId: 'calc-agent',      // Sends requests to mcp:calc-agent
+  agentId: 'orchestrator',
+  targetAgentId: 'calc-agent',
   bus,
 });
 await client.connect(transport);
@@ -376,16 +482,11 @@ const result = await client.callTool('add', { a: 3, b: 4 });
 
 ```ts
 interface NirnamMCPTransportOptions {
-  agentId: string;           // This instance's ID — listens on topic `mcp:<agentId>`
-  targetAgentId?: string;    // Send to `mcp:<targetAgentId>`. Required for clients.
-                             // Optional for servers (auto-replies to last sender).
+  agentId: string;           // This instance's ID — listens on `mcp:<agentId>`
+  targetAgentId?: string;    // Sends to `mcp:<targetAgentId>`. Required for clients.
   bus: NirnamBus;
 }
 ```
-
-**How routing works:** Messages are published to `mcp:<targetAgentId>` and received via `subscribe('mcp:<agentId>', ...)`. The server uses the `from` field in the envelope to know which client to reply to, enabling one server to serve multiple clients simultaneously.
-
-**Peer dep:** `@modelcontextprotocol/sdk` is optional. `NirnamMCPTransport` is structurally compatible but does not import from the SDK directly.
 
 ---
 
@@ -401,8 +502,6 @@ window.addEventListener(RequestType.BROAD, (e) => {
   console.log(event.topic, event.detail);
 });
 ```
-
-`DataEvent<T>` extends `CustomEvent<T>` with an extra `topic: string` property. Useful for bridging to non-Nirnam code or legacy event listeners.
 
 ---
 
@@ -421,6 +520,16 @@ interface NirnamBusOptions {
   useBroadcastChannel?: boolean;   // default true
   requestTimeout?: number;          // default 5000
   dispatchDOMEvents?: boolean;      // default false
+  persistence?: { defaultTtl?: number };  // default 60 000
+}
+
+interface PublishOptions {
+  persist?: boolean;   // Persist to IDB (default: false)
+  ttl?: number;        // TTL in ms; overrides bus-level default
+}
+
+interface SubscribeOptions {
+  replay?: number;     // Replay last N persisted messages on subscribe
 }
 
 // Errors
@@ -433,30 +542,14 @@ class NirnamRequestError extends Error {
 interface AgentRegistration {
   agentId: string;
   capabilities?: string[];
-  metadata?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;  // scope:'page' agents include { scope: 'page' }
 }
 type AgentChangeEvent =
   | { type: 'join'; agent: AgentRegistration }
   | { type: 'leave'; agentId: string };
 type AgentChangeHandler = (event: AgentChangeEvent) => void;
 
-// Internal message (not normally needed by consumers)
-interface NirnamMessage<T = unknown> {
-  type: NirnamMessageType;
-  topic?: string;
-  payload?: T;
-  requestId?: string;
-  sourcePageId?: string;
-  error?: string;
-  code?: NirnamErrorCode;
-  agentId?: string;
-  capabilities?: string[];
-  metadata?: Record<string, unknown>;
-  agents?: AgentRegistration[];
-  agent?: AgentRegistration;
-}
-
-// Enum: RequestType — used for dispatchDOMEvents & DataEvent
+// DOM event bridge
 enum RequestType { BROAD = 'broad', NARROW = 'narrow' }
 ```
 
@@ -466,8 +559,8 @@ enum RequestType { BROAD = 'broad', NARROW = 'narrow' }
 
 | Method | Returns | Description |
 |--------|---------|-------------|
-| `publish<T>(topic, payload)` | `void` | Broadcast to all subscribers |
-| `subscribe<T>(topic, handler)` | `UnsubscribeFn` | Receive broadcasts |
+| `publish<T>(topic, payload, opts?)` | `void` | Broadcast to all subscribers |
+| `subscribe<T>(topic, handler, opts?)` | `UnsubscribeFn` | Receive broadcasts; `opts.replay` replays persisted |
 | `handle<Req, Res>(topic, handler)` | `UnsubscribeFn` | Register request handler |
 | `request<Req, Res>(topic, payload, timeout?)` | `Promise<Res>` | Send request, await reply |
 | `handleStream<Req, Res>(topic, handler)` | `UnsubscribeFn` | Register streaming handler |
@@ -488,7 +581,43 @@ enum RequestType { BROAD = 'broad', NARROW = 'narrow' }
 export const bus = createBus();
 ```
 
-All components in the MFE import from this file. The bus is created once and lives for the MFE's lifetime.
+### Cross-tab pub/sub (Layer 1)
+
+```ts
+// Works across browser tabs automatically (useBroadcastChannel: true default).
+bus.publish('tab:focus', { tabId: PAGE_ID });
+bus.subscribe('tab:focus', ({ tabId }) => { /* another tab just focused */ });
+```
+
+### Cross-tab request-reply (Layer 3)
+
+```ts
+// Enable Layer 3 via a build plugin (nirnamPlugin for Vite), then:
+const bus = createBus(); // auto-uses /nirnam-worker.js
+
+// Tab A — host
+bus.handle('data:query', async ({ sql }) => await db.query(sql));
+
+// Tab B — client (same origin, same static worker URL)
+const rows = await bus.request('data:query', { sql: 'SELECT * FROM users' });
+```
+
+### Cross-tab agent proxy (Layer 3 + scope: 'page')
+
+```ts
+// Tab A — host (owns the real agent)
+import { createAgent } from '@palinc/nirnam/agents';
+const agent = createAgent({ agentId: 'my-agent', scope: 'page', llm, bus });
+await agent.ready;
+
+// Tab B — client
+import { createAgentProxy } from '@palinc/nirnam/agents';
+const proxy = createAgentProxy('my-agent', bus);
+const reply = await proxy.chat('Hello!');
+for await (const chunk of proxy.chatStream('Tell me a story')) {
+  process.stdout.write(chunk);
+}
+```
 
 ### Request-reply service
 
@@ -500,34 +629,16 @@ bus.handle<{ token: string }, { valid: boolean; userId?: string }>(
   async ({ token }) => ({ valid: await jwt.verify(token), userId: jwt.decode(token)?.sub }),
 );
 
-// In service B (different MFE)
+// In service B (different MFE or tab with Layer 3)
 const { valid, userId } = await bus.request('auth:verify', { token });
 ```
 
-### Coordinated shutdown (typed events)
+### Late-join replay with persistence
 
 ```ts
-bus.publish<{ reason: string }>('app:shutdown', { reason: 'deploy' });
-bus.subscribe<{ reason: string }>('app:shutdown', ({ reason }) => {
-  cleanup(reason);
-});
-```
+// Publisher — mark messages for persistence
+bus.publish('sensor:reading', { temp: 72.4 }, { persist: true, ttl: 60_000 });
 
-### Cross-tab pub/sub (Layer 1)
-
-```ts
-// Works across browser tabs automatically when useBroadcastChannel is true (default).
-// No extra configuration needed — just publish/subscribe as usual.
-bus.publish('tab:focus', { tabId: PAGE_ID });
-bus.subscribe('tab:focus', ({ tabId }) => { /* another tab just focused */ });
-```
-
-### Cross-tab service discovery (Layer 3)
-
-```ts
-// Serve the bundled SharedWorker at a static URL (e.g. via Vite/Webpack plugin).
-// Both tabs create a bus with the same workerUrl to share the worker process.
-const bus = createBus({ workerUrl: '/nirnam-worker.js' });
-
-// Now request() and handle() work cross-tab too.
+// Late subscriber — receives last 5 readings immediately on subscribe
+bus.subscribe('sensor:reading', handler, { replay: 5 });
 ```

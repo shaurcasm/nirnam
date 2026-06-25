@@ -2,6 +2,7 @@
 
 > Authoritative reference for the Nirnam agentic layer: NirnamAgent, LLM integration,
 > tool use, filesystem, bus communication, interceptors, multi-agent topologies, presets,
+> cross-tab agents (scope: 'page'), AgentProxy, IndexedDB history persistence,
 > and React hooks. Generated from source — keep in sync with `Library/src/agents/`.
 
 ---
@@ -12,20 +13,24 @@ A `NirnamAgent` is a **browser-native LLM agent** that runs in the main thread.
 It owns an agentic loop (LLM → parse → tool calls → repeat) and communicates with
 other agents or MFEs through the Nirnam SharedWorker bus.
 
-**Important constraints:**
-- Agents live in the **main thread** of the tab that created them. They do not survive page refresh.
-- Each tab creates its own agent instances — agents are NOT shared across browser tabs.
+**Key properties:**
+- Agents live in the **main thread** of the tab that created them.
+- `scope: 'tab'` (default) — private to the tab. Does not survive page refresh.
+- `scope: 'page'` — registers bus handlers so any tab can call it via `AgentProxy`. History is persisted to IndexedDB and restored on page reload.
 - `autoCleanup: true` (default) hooks `beforeunload` to call `destroy()` automatically.
-- Cross-tab agent sharing requires Layer 3 (static SharedWorker) and is not yet implemented.
 
 ---
 
 ## Import paths
 
 ```ts
-import { createAgent, connectAgents, pipelinePublish, fanOutPublish,
+import { createAgent, NirnamAgent,
+         AgentProxy, createAgentProxy,
+         connectAgents, pipelinePublish, fanOutPublish,
          presets, withPreset } from '@palinc/nirnam/agents';
-import type { AgentConfig, NirnamAgent, AgentStatus, AgentStats,
+
+import type { AgentConfig, AgentStatus, AgentStats,
+              AgentProxyOptions, PageChatRequest, PageRunRequest,
               LLMConfig, RealLLMConfig, MockLLMConfig, LLMProvider,
               ToolDefinition, ToolCall, ToolResult,
               Message, InternalMessage,
@@ -56,6 +61,7 @@ const agent = createAgent({
   tools: [myTool],
   autoCleanup: true,  // default
 });
+await agent.ready;
 ```
 
 ---
@@ -67,6 +73,7 @@ interface AgentConfig {
   agentId?: string;               // Auto-generated if omitted (stable for the session)
   llm: LLMConfig;                 // Required. Real LLM or mock.
   mode?: 'active' | 'passive';    // Default: 'active'
+  scope?: 'tab' | 'page';         // Default: 'tab'. See "Cross-tab agents" below.
   systemPrompt?: string;
   bus?: NirnamBus;                // Use an external bus. Omit to create a private one.
   tools?: ToolDefinition[];       // Initial tool set. More can be added later.
@@ -77,6 +84,18 @@ interface AgentConfig {
 }
 ```
 
+### `scope: 'tab'` vs `scope: 'page'`
+
+| | `'tab'` (default) | `'page'` |
+|---|---|---|
+| Cross-tab access | No | Yes — via `AgentProxy` |
+| Survives page refresh | No | Yes — history in IndexedDB |
+| Bus layer required | Layer 2+ | Layer 3 (static URL SharedWorker) |
+| Bus handlers registered | No | `${agentId}:__chat`, `__run`, `__stream` |
+| Registration metadata | `{ mode }` | `{ mode, scope: 'page' }` |
+
+> **Layer 3 requirement for cross-tab:** `scope: 'page'` registers request handlers on the bus. Request routing across browser tabs requires the Layer 3 static SharedWorker (enabled by `@palinc/nirnam/vite`, `/rsbuild`, or `/webpack` plugins). Without Layer 3 the proxy calls fail with `NirnamRequestError(NO_HANDLER)` when the proxy is in a different tab.
+
 ### `mode: 'active'` vs `mode: 'passive'`
 
 | | `active` (default) | `passive` |
@@ -85,7 +104,6 @@ interface AgentConfig {
 | Use `chat()` | Yes | No (warn) |
 | Use `run()` | Yes | Yes |
 | Use `process()` | Warns, still works | Intended use |
-| System prompt role | Depends on LLM | Same |
 
 ### `bus?: NirnamBus`
 
@@ -179,12 +197,10 @@ agent.status          // current status (synchronous read)
 agent.onStatusChange(handler)  // subscribe to transitions
 ```
 
-- `initializing` → transitions to `ready` after the bus registration completes.
+- `initializing` → transitions to `ready` after the bus registration completes (and history restore, for `scope: 'page'`).
 - `busy` → set while `chat()`, `chatStream()`, `run()`, or `process()` is in progress.
 - `stopped` → set by `stop()`. Calling chat/run/process throws. Resume with `resume()`.
 - `destroyed` → set by `destroy()`. All bus subscriptions removed. Cannot be resumed.
-
-Calling `chat()` / `run()` / `process()` on a `stopped` or `destroyed` agent throws immediately.
 
 ---
 
@@ -192,7 +208,7 @@ Calling `chat()` / `run()` / `process()` on a `stopped` or `destroyed` agent thr
 
 ### `agent.chat(message, options?)` → `Promise<string>`
 
-Full agentic loop. Runs LLM → parses tool calls → executes tools → feeds results → repeats until no tool calls or `maxIterations` reached. Updates public `history`.
+Full agentic loop. Runs LLM → parses tool calls → executes tools → feeds results → repeats until no tool calls or `maxIterations` reached. Updates public `history`. For `scope: 'page'` agents, persists history to IndexedDB after completion.
 
 ```ts
 const reply = await agent.chat('What is 3 * 7?');
@@ -212,7 +228,7 @@ const reply = await agent.chat('Analyse this dataset', {
 
 ### `agent.chatStream(message, options?)` → `AsyncGenerator<string>`
 
-Same as `chat()` but streams the **final** LLM response token-by-token. Tool calls before the final response are resolved non-streaming.
+Same as `chat()` but streams the **final** LLM response token-by-token. Tool calls before the final response are resolved non-streaming. For `scope: 'page'` agents, persists history after the stream ends.
 
 ```ts
 for await (const chunk of agent.chatStream('Tell me a story about MFEs')) {
@@ -220,18 +236,14 @@ for await (const chunk of agent.chatStream('Tell me a story about MFEs')) {
 }
 ```
 
-The generator yields string chunks as they arrive from the LLM. Accumulated text is committed to history when the stream ends.
-
 ### `agent.run(task, options?)` → `Promise<string>`
 
-One-shot task execution. Runs the agentic loop (LLM + tools), returns the final string, then **restores history** to pre-call state (unless `retainHistory: true`).
+One-shot task execution. Runs the agentic loop (LLM + tools), returns the final string, then **restores history** to pre-call state (unless `retainHistory: true`). For `scope: 'page'` agents with `retainHistory: true`, persists history after completion.
 
 ```ts
 const summary = await agent.run('Summarize: The quick brown fox...');
 // agent.history is unchanged after this call
 ```
-
-Use `run()` for pipeline stages and background tasks where the call should not pollute the chat context.
 
 ### `agent.process(input)` → `Promise<string>`
 
@@ -243,23 +255,130 @@ const result = await agent.process('[ERROR] Database connection refused');
 // Returns JSON classification, does not update agent.history
 ```
 
-With `retainHistory: true`, `process()` accumulates context across calls internally:
-```ts
-const agent = createAgent({ ..., retainHistory: true, mode: 'passive' });
-await agent.process('log event 1');
-await agent.process('log event 2');  // LLM sees both in context
-```
-
 ### Method comparison
 
-| Method | Updates `history` | Restores history after | Tool loop | Streaming |
-|--------|------------------|-----------------------|-----------|-----------|
-| `chat()` | Yes | — (persists) | Yes | No |
-| `chatStream()` | Yes | — (persists) | Yes (non-stream) | Yes (final) |
-| `run()` | During call only* | Yes (default) | Yes | No |
-| `process()` | No (passive) | — | No | No |
+| Method | Updates `history` | Restores history after | Tool loop | Streaming | IDB persist (`scope:'page'`) |
+|--------|------------------|-----------------------|-----------|-----------|-------------------------------|
+| `chat()` | Yes | — (persists) | Yes | No | Yes |
+| `chatStream()` | Yes | — (persists) | Yes (non-stream) | Yes (final) | Yes |
+| `run()` | During call only* | Yes (default) | Yes | No | Only if `retainHistory: true` |
+| `process()` | No (passive) | — | No | No | No |
 
 *`run()` restores history after completing unless `retainHistory: true`.
+
+---
+
+## Cross-tab agents — `scope: 'page'` and `AgentProxy`
+
+### Architecture
+
+The agent's LLM client, tool executor, and File System Access API always run in the **host tab's main thread**. The Layer 3 SharedWorker acts as a message router only — no agent logic runs inside the worker.
+
+```
+┌──────────────── Tab A (host) ───────────────────┐
+│  NirnamAgent(scope:'page', agentId:'my-agent')  │
+│  ├─ Registers bus.handle('my-agent:__chat', …)  │
+│  ├─ Registers bus.handle('my-agent:__run', …)   │
+│  └─ Registers bus.handleStream('…:__stream', …) │
+└─────────────────────────────────────────────────┘
+                    │  Layer 3 SharedWorker (routes) │
+┌──────────────── Tab B (client) ─────────────────┐
+│  AgentProxy('my-agent', bus)                    │
+│  └─ proxy.chat(msg) → bus.request('…:__chat')   │
+└─────────────────────────────────────────────────┘
+```
+
+### Host tab setup
+
+```ts
+import { createAgent } from '@palinc/nirnam/agents';
+import { createBus } from '@palinc/nirnam';
+
+const bus = createBus(); // Layer 3 bus (nirnamPlugin() must be active in build config)
+
+const agent = createAgent({
+  agentId: 'my-agent',      // stable ID — required for cross-tab discovery + IDB persistence
+  scope: 'page',
+  llm: { url: '...', model: 'gpt-4o', apiKey: '...' },
+  bus,
+  autoCleanup: true,        // default — deregisters handlers on beforeunload
+});
+await agent.ready;
+```
+
+On `ready`:
+1. Saved history from the previous session is restored from IndexedDB (if any).
+2. Bus handlers for `__chat`, `__run`, `__stream` are registered.
+3. Registration metadata includes `{ scope: 'page' }`.
+
+### Client tab proxy
+
+```ts
+import { createAgentProxy } from '@palinc/nirnam/agents';
+import { createBus } from '@palinc/nirnam';
+
+const bus = createBus(); // same origin, same Layer 3 worker URL
+const proxy = createAgentProxy('my-agent', bus, { timeout: 30_000 });
+
+// Call just like a local agent
+const reply = await proxy.chat('Hello!');
+const result = await proxy.run('Summarize this document');
+
+// Streaming
+for await (const chunk of proxy.chatStream('Tell me a story')) {
+  process.stdout.write(chunk);
+}
+```
+
+### `AgentProxy` API
+
+```ts
+class AgentProxy {
+  readonly agentId: string;
+
+  chat(message: string, options?: {
+    maxIterations?: number;
+    timeout?: number;    // per-call timeout; overrides constructor default
+  }): Promise<string>;
+
+  run(task: string, options?: {
+    maxIterations?: number;
+    timeout?: number;
+  }): Promise<string>;
+
+  chatStream(message: string, options?: {
+    maxIterations?: number;
+  }): AsyncGenerator<string>;
+}
+```
+
+### `createAgentProxy(agentId, bus, options?)` → `AgentProxy`
+
+Synchronous. Creates the proxy immediately without verifying the agent exists. If the remote agent is unreachable, the first method call throws `NirnamRequestError(NO_HANDLER)` or `NirnamRequestError(TIMEOUT)`.
+
+```ts
+interface AgentProxyOptions {
+  timeout?: number;  // Default request timeout in ms. Default: 30 000.
+}
+```
+
+### Request serialisation
+
+Concurrent proxy calls from multiple tabs are automatically serialised on the host agent side. If Tab B and Tab C both call `proxy.chat()` simultaneously, the host agent queues them and processes them one at a time, preventing history corruption.
+
+### IndexedDB history persistence
+
+For `scope: 'page'` agents:
+- After each `chat()` or `chatStream()` call, the full internal history is saved to IndexedDB under the key `nirnam-agent-history-v1 / histories / ${agentId}`.
+- After `run()` with `retainHistory: true`, history is also saved.
+- On the next page load, `_initialize()` automatically restores history before setting status to `'ready'`.
+- History is stored using the `nirnam-agent-history-v1` IndexedDB database.
+
+```ts
+// Manual access to the history store (for custom persistence logic)
+import { saveAgentHistory, loadAgentHistory, deleteAgentHistory } from '@palinc/nirnam/agents/history-store';
+// Note: prefer using scope:'page' auto-persistence over direct access.
+```
 
 ---
 
@@ -321,7 +440,6 @@ const summarizerTool = summarizer.asTool({
     properties: { text: { type: 'string' } },
     required: ['text'],
   },
-  // Optional: format how args are passed to run()
   formatInput: ({ text }) => `Summarize this: ${text}`,
 });
 
@@ -337,7 +455,6 @@ The agent can call `read_file`, `write_file`, `list_directory`, `create_director
 ### Request folder picker (browser native)
 
 ```ts
-// Opens the browser's directory picker; user selects a folder.
 const handle = await agent.requestFolderAccess({ mode: 'readwrite' });
 // 'read' | 'readwrite' (default: 'readwrite')
 ```
@@ -345,7 +462,6 @@ const handle = await agent.requestFolderAccess({ mode: 'readwrite' });
 ### Mount a pre-existing handle
 
 ```ts
-// If you already have a FileSystemDirectoryHandle (e.g. from a previous session)
 await agent.mountFolder(existingHandle);
 ```
 
@@ -425,10 +541,8 @@ Interceptors are middleware functions that run around specific points in the age
 ```ts
 const unsub = agent.onBeforeToolCall(async (call, next) => {
   if (call.name === 'delete_file') {
-    // Deny: return error object
     return { error: 'File deletion is not allowed.' };
   }
-  // Allow: call next() to proceed
   const result = await next(call);
   return result;
 });
@@ -445,36 +559,20 @@ type ToolCallInterceptor = (
 
 ```ts
 agent.onAfterToolCall(async (call, result) => {
-  // Redact sensitive data before it enters the LLM context
   return { ...result, content: redact(result.content) };
 });
-```
-
-```ts
-type ToolResultInterceptor = (
-  call: ToolCall,
-  result: ToolResult,
-) => ToolResult | Promise<ToolResult>;
 ```
 
 ### `onBeforeLLMCall` — inspect or modify the message list
 
 ```ts
 agent.onBeforeLLMCall(async (messages, next) => {
-  // Inject a reminder message before every LLM call
   const withReminder = [
     ...messages,
     { role: 'system' as const, content: 'Remember: be concise.' },
   ];
   return next(withReminder);
 });
-```
-
-```ts
-type BeforeLLMCallInterceptor = (
-  messages: InternalMessage[],
-  next: (messages: InternalMessage[]) => Promise<LLMResponse>,
-) => Promise<LLMResponse>;
 ```
 
 ### `onMessage` — observe every user/assistant message
@@ -574,10 +672,7 @@ const teardown = connectAgents([summarizer, reviewer], {
   topic: 'doc-pipeline',
 });
 
-// Kick off the pipeline — summarizer receives this as input
 pipelinePublish(summarizer, 'doc-pipeline', longDocumentText);
-
-// Clean up wiring (not the agents themselves)
 teardown();
 ```
 
@@ -588,9 +683,6 @@ Internal topics: `nirnam:pipeline:{topic}:0`, `:1`, `:2`, ...
 ```
 input → agents[0] → agents[1], agents[2], agents[3] (all in parallel)
 ```
-
-- `agents[0]` is the source.
-- All other agents receive the same input and process it independently via `agent.run()`.
 
 ```ts
 const teardown = connectAgents([source, classifierA, classifierB], {
@@ -661,8 +753,6 @@ const { severity, category, message } = JSON.parse(result);
 
 ### `withPreset(preset, config)` → `AgentConfig`
 
-Merges a preset into a full config. `config` always takes precedence (spread after preset).
-
 ```ts
 function withPreset(
   preset: Omit<AgentConfig, 'llm'>,
@@ -676,8 +766,8 @@ const agent = createAgent(withPreset(
   presets.filesystem(),
   {
     llm,
-    systemPrompt: 'Override the default filesystem prompt',  // overrides preset's systemPrompt
-    tools: [myExtraTool],  // added on top
+    systemPrompt: 'Override the default filesystem prompt',
+    tools: [myExtraTool],
   }
 ));
 ```
@@ -699,43 +789,29 @@ const agent = useAgent({
 });
 ```
 
-To recreate the agent when config changes, key the component:
-
-```tsx
-<ChatPanel key={JSON.stringify(llmConfig)} llm={llmConfig} />
-```
-
 ### `useAgentChat(agent)` → `AgentChatState`
 
 Manages streaming chat state for an active agent.
 
 ```ts
 interface AgentChatState {
-  messages: Message[];      // User + assistant messages (public history)
-  send: (text: string) => void;  // Start a streaming chat turn
+  messages: Message[];
+  send: (text: string) => void;
   isStreaming: boolean;
   error: Error | null;
-  clearMessages: () => void; // Clears UI messages + calls agent.clearHistory()
+  clearMessages: () => void;
 }
 ```
 
 ```tsx
 const agent = useAgent({ llm, ... });
 const { messages, send, isStreaming, error, clearMessages } = useAgentChat(agent);
-
-// Render messages
-messages.map(m => <div key={m.id}>[{m.role}] {m.content}</div>)
-
-// Send a message
-<button onClick={() => send('Hello!')}>Send</button>
 ```
 
 `send()` is a no-op if `isStreaming` is true or `agent` is null.
 Internally uses `agent.chatStream()`. The streaming assistant message is upserted in-place by its `id` as chunks arrive.
 
 ### `useAgentStatus(agent)` → `AgentStatus`
-
-Subscribes to an agent's status and re-renders on change.
 
 ```tsx
 const status = useAgentStatus(agent);
@@ -749,7 +825,7 @@ const status = useAgentStatus(agent);
 ```ts
 interface LoggerConfig {
   level?: 'silent' | 'error' | 'warn' | 'info' | 'debug';  // Default: 'silent'
-  transport?: (entry: LogEntry) => void;  // Custom log handler
+  transport?: (entry: LogEntry) => void;
 }
 
 interface LogEntry {
@@ -761,37 +837,22 @@ interface LogEntry {
 }
 ```
 
-```ts
-const agent = createAgent({
-  llm,
-  logger: {
-    level: 'debug',
-    transport: (entry) => console.log(`[${entry.level}] ${entry.message}`, entry.data),
-  },
-});
-```
-
 ---
 
 ## Testing utilities — `@palinc/nirnam/agents/testing`
 
 ### `mockLLM(config)` → `MockLLMConfig`
 
-Creates a mock LLM config for use with `createAgent`. No network calls made.
-
 ```ts
 import { mockLLM } from '@palinc/nirnam/agents/testing';
 
-// Static string response
 mockLLM({ response: 'Fixed reply' })
 
-// Scripted tool call + follow-up response
 mockLLM({
   toolCalls: [{ name: 'get_time', args: {} }],
   afterToolCalls: 'The time is 3:00 PM.',
 })
 
-// Custom handler — full control
 mockLLM({
   handler: (messages) => ({
     content: `echo: ${messages.at(-1)?.content}`,
@@ -815,19 +876,22 @@ const llm = scenarioMock([
 ]);
 ```
 
-Each step is consumed in order. If the agent makes more calls than steps, the last step repeats (or throws — configurable).
-
 ---
 
 ## Types quick reference
 
 ```ts
 // Config
-interface AgentConfig { agentId?, llm, mode?, systemPrompt?, bus?, tools?, filesystem?, autoCleanup?, logger?, retainHistory? }
+interface AgentConfig { agentId?, llm, mode?, scope?: 'tab' | 'page', systemPrompt?, bus?, tools?, filesystem?, autoCleanup?, logger?, retainHistory? }
 interface RealLLMConfig { url, model, apiKey?, provider? }
 interface MockLLMConfig { _isMock: true, response?, toolCalls?, afterToolCalls?, handler? }
 type LLMConfig = RealLLMConfig | MockLLMConfig;
 type LLMProvider = 'openai-compat' | 'anthropic';
+
+// Proxy
+class AgentProxy { agentId, chat(msg, opts?), run(task, opts?), chatStream(msg, opts?) }
+interface AgentProxyOptions { timeout?: number }
+function createAgentProxy(agentId, bus, opts?): AgentProxy
 
 // Agent state
 type AgentStatus = 'initializing' | 'ready' | 'busy' | 'stopped' | 'destroyed';
@@ -864,12 +928,12 @@ interface LoggerConfig { level?, transport? }
 |--------|------|-------------|
 | `agentId` | `string` | Stable agent ID for this session |
 | `status` | `AgentStatus` | Current status (synchronous) |
-| `ready` | `Promise<void>` | Resolves after bus registration |
+| `ready` | `Promise<void>` | Resolves after bus registration (+ IDB restore for `scope:'page'`) |
 | `stats` | `AgentStats` | Cumulative metrics |
 | `history` | `Message[]` | Public chat history (copy) |
-| `chat(msg, opts?)` | `Promise<string>` | Full agentic turn, updates history |
+| `chat(msg, opts?)` | `Promise<string>` | Full agentic turn, updates history, persists for `scope:'page'` |
 | `chatStream(msg, opts?)` | `AsyncGenerator<string>` | Streaming final response |
-| `run(task, opts?)` | `Promise<string>` | One-shot, history not persisted |
+| `run(task, opts?)` | `Promise<string>` | One-shot, history not persisted by default |
 | `process(input)` | `Promise<string>` | Passive-mode processing |
 | `stop()` | `void` | Pause; aborts in-flight |
 | `resume()` | `void` | Resume after stop |
@@ -892,3 +956,12 @@ interface LoggerConfig { level?, transport? }
 | `clearHistory()` | `void` | Wipe public + internal history |
 | `exportHistory()` | `InternalMessage[]` | Full internal context snapshot |
 | `importHistory(snapshot)` | `void` | Restore from snapshot |
+
+## `AgentProxy` public API summary
+
+| Member | Type | Description |
+|--------|------|-------------|
+| `agentId` | `string` | The target agent's ID |
+| `chat(msg, opts?)` | `Promise<string>` | Forward chat to host agent via bus |
+| `run(task, opts?)` | `Promise<string>` | Forward run to host agent via bus |
+| `chatStream(msg, opts?)` | `AsyncGenerator<string>` | Stream from host agent via bus |

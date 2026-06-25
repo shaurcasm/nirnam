@@ -27,8 +27,16 @@ const STREAM_END_SENTINEL = Symbol('nirnam.stream.end');
 
 let workerBlobUrl: string | null = null;
 
+// Injected at bundle time by @palinc/nirnam/vite, /rsbuild, or /webpack.
+// When present, createBus() uses a static-URL SharedWorker (Layer 3),
+// enabling true cross-tab sharing across all tabs on the same origin.
+declare const __NIRNAM_STATIC_WORKER_URL__: string | undefined;
+
 function resolveWorkerUrl(staticUrl?: string): string {
   if (staticUrl) return staticUrl;
+  if (typeof __NIRNAM_STATIC_WORKER_URL__ === 'string') {
+    return __NIRNAM_STATIC_WORKER_URL__;
+  }
   if (!workerBlobUrl) {
     const blob = new Blob([workerSource], { type: 'application/javascript' });
     workerBlobUrl = URL.createObjectURL(blob);

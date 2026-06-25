@@ -246,14 +246,25 @@ class MyComponent {
 
 ## 7. Static Worker Deployment Tooling (Build Plugins)
 
-**Status:** Planned.
+**Status:** Complete.
 
 **Purpose:** Make Layer 3 (static URL SharedWorker) easy to enable without manual file copy.
 
-**Planned plugins:**
-- `@palinc/nirnam/vite` â€” Vite plugin that copies `worker.js` to `public/` and injects the URL
-- `@palinc/nirnam/rsbuild` â€” Rsbuild/Rspack plugin (same pattern)
-- `@palinc/nirnam/webpack` â€” Webpack `CopyWebpackPlugin` config helper
+**Shipped:**
+- `@palinc/nirnam/vite` — Vite plugin: copies worker to `<publicDir>/nirnam-worker.js`, injects `__NIRNAM_STATIC_WORKER_URL__` via `define`
+- `@palinc/nirnam/rsbuild` — Rsbuild plugin: copies worker to `<root>/public/nirnam-worker.js` on build + dev-server start, injects URL via `source.define`
+- `@palinc/nirnam/webpack` — Webpack 5 plugin: emits worker as output asset, injects URL via an internal `DefinePlugin`
+- All three plugins accept an optional `workerPath` option to customise the filename / URL
+- `createBus()` automatically reads `__NIRNAM_STATIC_WORKER_URL__` injected at bundle time — no `workerUrl` option needed
+- Explicit `createBus({ workerUrl })` takes precedence over the injected global
+- Example: `Examples/static-worker/` — Vite + React demo with live cross-tab counter
+
+**Mechanism:**
+
+`bus.ts` declares `__NIRNAM_STATIC_WORKER_URL__: string | undefined` as an ambient global. Build
+plugins substitute the identifier with the literal URL string before the app bundle is shipped.
+Without a plugin the identifier stays `undefined` at runtime and the bus falls back to a Blob URL
+(Layer 2 behaviour — unchanged).
 
 **Usage:**
 ```ts
@@ -261,7 +272,15 @@ class MyComponent {
 import { nirnamPlugin } from '@palinc/nirnam/vite';
 export default { plugins: [nirnamPlugin()] };
 
-// App code â€” URL auto-injected by plugin
+// rsbuild.config.ts
+import { nirnamRsbuildPlugin } from '@palinc/nirnam/rsbuild';
+export default defineConfig({ plugins: [nirnamRsbuildPlugin()] });
+
+// webpack.config.js
+const { NirnamWebpackPlugin } = require('@palinc/nirnam/webpack');
+module.exports = { plugins: [new NirnamWebpackPlugin()] };
+
+// App code — URL auto-injected by plugin, no options needed
 const bus = createBus(); // automatically uses /nirnam-worker.js when plugin is present
 ```
 
@@ -279,10 +298,35 @@ Features deprioritised until all core agent primitives are stable. Revisit after
 
 ### L2. Cross-tab passive agents (scope: 'tab' | 'page')
 
-**What:** A `scope: 'page'` option on `createAgent()` that causes the agent to live in the Layer 3 static SharedWorker, making it accessible across all tabs on the same origin and surviving soft navigations.
+**Status:** Complete.
 
-**Current behaviour (documented):** Agents run in the browser's main thread and are NOT shared across tabs. Each tab creates its own instances. Agents do NOT survive a page refresh. This is correctly documented in the `agents.ts` entry point JSDoc and in `AGENT_API_DESIGN.md`.
+**Shipped:**
+- `AgentConfig.scope?: 'tab' | 'page'` — opt-in per-agent. Default: `'tab'` (existing behaviour unchanged).
+- `scope: 'page'` registers bus request handlers (`${agentId}:__chat`, `${agentId}:__run`, `${agentId}:__stream`) so any tab can call the agent.
+- `AgentProxy` class — lightweight cross-tab proxy; forwards `chat()`, `run()`, `chatStream()` over the bus.
+- `createAgentProxy(agentId, bus, options?)` — factory that returns an `AgentProxy` immediately (synchronous, no discovery round-trip).
+- IndexedDB history persistence — page-scoped agents automatically save conversation history after each `chat()` / `chatStream()` call and restore it on the next page load (when the same `agentId` is used).
+- Request serialisation queue — concurrent bus requests are queued internally so parallel calls from multiple proxy tabs never corrupt agent history.
+- Both `AgentProxy` and the history store are re-exported from `@palinc/nirnam/agents`.
 
-**Why deferred:** Requires significant worker-side changes: the agent's LLM client, tool executor, and File System Access API calls cannot run inside the SharedWorker (no fetch, no DOM APIs). A proxy/message-relay architecture between the shared worker and a designated “host tab” is required. This is a V2 breaking change.
+**Architecture:**
+The agent's LLM client, tool executor, and File System Access API still run in the host tab's main thread. The Layer 3 SharedWorker acts purely as a message router — no agent logic runs inside the worker. This avoids all worker-API restrictions while keeping true cross-tab routing.
 
-**Temporary workaround for developers:** Use `autoCleanup: true` (default) and re-create agents on page load. The bus's agent registry (`bus.discoverAgents()`) remains accurate because `beforeunload` triggers deregistration.
+**Usage:**
+```ts
+// host tab (owns the real agent)
+import { createAgent } from '@palinc/nirnam/agents';
+const agent = createAgent({
+  agentId: 'my-agent',       // stable ID required for history persistence
+  scope: 'page',
+  llm: { url: '...', model: 'gpt-4o', apiKey: '...' },
+  bus,                        // Layer 3 bus (nirnamPlugin() active)
+});
+await agent.ready;
+
+// any other tab
+import { createAgentProxy } from '@palinc/nirnam/agents';
+const proxy = createAgentProxy('my-agent', bus);
+const reply = await proxy.chat('Hello!');
+const stream = proxy.chatStream('Tell me a story');
+```

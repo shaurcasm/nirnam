@@ -42,6 +42,21 @@
       "import": "./dist/agents-testing.esm.js",
       "require": "./dist/agents-testing.js",
       "types": "./dist/agents-testing.d.ts"
+    },
+    "./vite": {
+      "import": "./dist/vite.esm.js",
+      "require": "./dist/vite.js",
+      "types": "./dist/vite.d.ts"
+    },
+    "./rsbuild": {
+      "import": "./dist/rsbuild.esm.js",
+      "require": "./dist/rsbuild.js",
+      "types": "./dist/rsbuild.d.ts"
+    },
+    "./webpack": {
+      "import": "./dist/webpack.esm.js",
+      "require": "./dist/webpack.js",
+      "types": "./dist/webpack.d.ts"
     }
   },
   "files": [
@@ -74,17 +89,29 @@
   "description": "A three-layer hybrid message bus for micro-frontend communication using SharedWorker and BroadcastChannel",
   "peerDependencies": {
     "@modelcontextprotocol/sdk": ">=1.0.0",
+    "@rsbuild/core": ">=1",
     "react": ">=17",
-    "rxjs": ">=6"
+    "rxjs": ">=6",
+    "vite": ">=4",
+    "webpack": ">=5"
   },
   "peerDependenciesMeta": {
     "@modelcontextprotocol/sdk": {
+      "optional": true
+    },
+    "@rsbuild/core": {
       "optional": true
     },
     "react": {
       "optional": true
     },
     "rxjs": {
+      "optional": true
+    },
+    "vite": {
+      "optional": true
+    },
+    "webpack": {
       "optional": true
     }
   },

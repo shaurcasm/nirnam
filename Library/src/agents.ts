@@ -6,16 +6,15 @@
  * Import this subpath lazily to avoid loading the LLM client until needed:
  *   const { createAgent } = await import('@palinc/nirnam/agents');
  *
- * IMPORTANT — tab and refresh behaviour:
- *   Agents created with createAgent() run in the browser's main thread and are
- *   NOT shared across tabs. Each tab creates its own agent instances. Agents do
- *   NOT survive a page refresh — they must be recreated on each page load.
- *   autoCleanup (default: true) ensures agents deregister from the bus on unload.
- *   Cross-tab agent sharing requires the Layer 3 static SharedWorker and is
- *   planned for a future major version.
+ * Tab vs page scope:
+ *   `scope: 'tab'` (default) — agent lives in this tab only.
+ *   `scope: 'page'` — agent registers bus handlers so any tab can call it via
+ *   `createAgentProxy()`.  Requires a Layer 3 (static URL SharedWorker) bus for
+ *   true cross-tab routing.  History is persisted to IndexedDB automatically.
  */
 
 export { NirnamAgent, createAgent } from './agents/agent';
+export { AgentProxy, createAgentProxy } from './agents/agent-proxy';
 export { connectAgents, pipelinePublish, fanOutPublish } from './agents/connect';
 export { presets, withPreset } from './agents/presets';
 
@@ -45,3 +44,5 @@ export type {
   LoggerConfig,
   LogEntry,
 } from './agents/types';
+
+export type { AgentProxyOptions, PageChatRequest, PageRunRequest } from './agents/agent-proxy';

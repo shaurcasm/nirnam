@@ -1,3 +1,10 @@
+# [1.3.0](https://github.com/shaurcasm/nirnam/compare/v1.2.0...v1.3.0) (2026-06-25)
+
+
+### Features
+
+* IndexedDB Message persistence with replay ([f55bd13](https://github.com/shaurcasm/nirnam/commit/f55bd1310793cb10e8acadbfe92757f6e07d9038))
+
 # [1.2.0](https://github.com/shaurcasm/nirnam/compare/v1.1.0...v1.2.0) (2026-06-22)
 
 

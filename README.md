@@ -3,6 +3,7 @@
 A three-layer hybrid message bus for micro-frontend communication and browser-native AI agents.
 
 **[npm package →](https://www.npmjs.com/package/@palinc/nirnam)**
+**[Github repo →](https://github.com/shaurcasm/nirnam)
 
 ---
 

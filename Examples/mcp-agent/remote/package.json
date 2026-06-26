@@ -1,6 +1,7 @@
-﻿{
+{
   "name": "mcp-agent-remote",
   "version": "1.0.0",
+  "type": "module",
   "private": true,
   "scripts": {
     "dev": "rsbuild dev",
@@ -8,14 +9,14 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
-    "@palinc/nirnam": "file:../../../Library",
+    "@palinc/nirnam": "^1.4.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
     "@rsbuild/core": "^1.0.0",
     "@rsbuild/plugin-react": "^1.0.0",
-    "@module-federation/rsbuild-plugin": "^0.6.0",
+    "@module-federation/rsbuild-plugin": "^2.0.0",
     "typescript": "^5.5.0"
   }
 }

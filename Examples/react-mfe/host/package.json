@@ -1,7 +1,8 @@
-﻿{
+{
   "name": "nirnam-example-host",
   "private": true,
   "version": "1.0.0",
+  "type": "module",
   "scripts": {
     "dev": "rsbuild dev",
     "build": "rsbuild build",
@@ -9,7 +10,7 @@
   },
   "dependencies": {
     "@module-federation/enhanced": "^0.8.9",
-    "@palinc/nirnam": "file:../../../Library",
+    "@palinc/nirnam": "^1.4.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },

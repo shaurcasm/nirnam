@@ -17,7 +17,7 @@ interface OllamaMessage {
 
 async function ollamaChat(
   messages: OllamaMessage[],
-  model = "qwen2.5-coder:14b"
+  model = "qwen2.5:14b"
 ): Promise<string> {
   const res = await fetch("http://localhost:11434/api/chat", {
     method: "POST",
@@ -76,7 +76,7 @@ async function startServer(onStatus: (s: string) => void) {
       model: z
         .string()
         .optional()
-        .describe("Ollama model to use (default: qwen2.5-coder:14b)"),
+        .describe("Ollama model to use (default: qwen2.5:14b)"),
     },
     async ({ question, model }) => {
       if (!documentContent) {
@@ -99,7 +99,7 @@ async function startServer(onStatus: (s: string) => void) {
           },
           { role: "user", content: question },
         ],
-        model ?? "qwen2.5-coder:14b"
+        model ?? "qwen2.5:14b"
       );
 
       return { content: [{ type: "text", text: answer }] };

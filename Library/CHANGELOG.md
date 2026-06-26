@@ -1,3 +1,10 @@
+## [1.4.1](https://github.com/shaurcasm/nirnam/compare/v1.4.0...v1.4.1) (2026-06-26)
+
+
+### Bug Fixes
+
+* README for npm add github link ([e9da38e](https://github.com/shaurcasm/nirnam/commit/e9da38e05a8642a550c57e32f55da3045b477a17))
+
 # [1.4.0](https://github.com/shaurcasm/nirnam/compare/v1.3.0...v1.4.0) (2026-06-25)
 
 

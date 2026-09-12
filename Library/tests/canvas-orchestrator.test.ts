@@ -226,6 +226,25 @@ describe('frame loop', () => {
     expect(tree.frames).toHaveLength(1);
   });
 
+  it('stops while the page is hidden — worker rAF is not throttled for background tabs — and resumes', () => {
+    attach('tree');
+    scope.receive({ type: 'canvas:page-hidden', hidden: true });
+    expect(orchestrator!.running).toBe(false);
+    clock.tick();
+    expect(tree.frames).toHaveLength(0);
+
+    scope.receive({ type: 'canvas:page-hidden', hidden: false });
+    expect(orchestrator!.running).toBe(true);
+    clock.tick();
+    expect(tree.frames).toHaveLength(1);
+  });
+
+  it('does not start when a surface attaches while the page is hidden', () => {
+    scope.receive({ type: 'canvas:page-hidden', hidden: true });
+    attach('tree');
+    expect(orchestrator!.running).toBe(false);
+  });
+
   it('holds the ambient tier to its target frame rate', () => {
     make({ tier: 'ambient' });
     attach('tree');

@@ -3,9 +3,10 @@
  *
  * One `requestAnimationFrame` drives every attached surface so they never
  * drift out of phase with each other or with vsync. Surfaces that are not
- * visible are skipped; when nothing needs drawing the loop stops, and a
- * hidden tab stops it for free because worker rAF throttles with the
- * document.
+ * visible are skipped, and when nothing needs drawing the loop stops. That
+ * includes the whole page being hidden: worker rAF keeps firing at full rate
+ * in a background tab, so the host reports document visibility and the loop
+ * stops on it explicitly.
  *
  * The orchestrator also measures itself. Every stats interval it reports
  * per-surface frame timing, and after sustained overrun it steps its own
@@ -128,6 +129,7 @@ export function createOrchestrator(options: OrchestratorOptions): Orchestrator {
   };
 
   let tier: MotionTier = options.tier ?? 'full';
+  let pageHidden = false;
   const slots = new Map<string, Slot>();
   let frameId: number | null = null;
   let startedAt: number | null = null;
@@ -152,7 +154,7 @@ export function createOrchestrator(options: OrchestratorOptions): Orchestrator {
   // ---- loop ------------------------------------------------------------------
 
   const shouldRun = () =>
-    tier !== 'off' && [...slots.values()].some(slot => slot.visible);
+    tier !== 'off' && !pageHidden && [...slots.values()].some(slot => slot.visible);
 
   function schedule() {
     if (frameId !== null || !shouldRun()) return;
@@ -298,6 +300,10 @@ export function createOrchestrator(options: OrchestratorOptions): Orchestrator {
         break;
       case 'canvas:tier':
         setTier(message.tier);
+        break;
+      case 'canvas:page-hidden':
+        pageHidden = message.hidden;
+        reconcile();
         break;
     }
   }

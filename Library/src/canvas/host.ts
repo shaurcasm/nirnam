@@ -31,6 +31,8 @@ export interface HostDeps {
   IntersectionObserver?: typeof IntersectionObserver;
   /** Where pointer events are read from; `window` so the canvas can stay `pointer-events: none`. */
   pointerTarget?: EventTarget;
+  /** Where `visibilitychange` is read from; `document`. */
+  visibilityTarget?: Pick<Document, 'visibilityState' | 'addEventListener' | 'removeEventListener'>;
   devicePixelRatio?(): number;
   /** Call back whenever the DPR changes; returns an unsubscribe. */
   watchDevicePixelRatio?(callback: () => void): () => void;
@@ -75,6 +77,7 @@ const POINTER_EVENTS = ['pointermove', 'pointerdown', 'pointerup', 'pointercance
 function browserDeps(): Required<Omit<HostDeps, 'post' | 'onMessage' | 'ResizeObserver' | 'IntersectionObserver'>> {
   const g = globalThis as unknown as {
     window?: Window;
+    document?: Document;
     devicePixelRatio?: number;
     matchMedia?: (q: string) => MediaQueryList;
     requestAnimationFrame?: (cb: () => void) => number;
@@ -83,6 +86,7 @@ function browserDeps(): Required<Omit<HostDeps, 'post' | 'onMessage' | 'ResizeOb
   return {
     transfer: (canvas) => canvas.transferControlToOffscreen(),
     pointerTarget: g.window as unknown as EventTarget,
+    visibilityTarget: g.document ?? { visibilityState: 'visible', addEventListener: () => {}, removeEventListener: () => {} },
     devicePixelRatio: () => g.devicePixelRatio ?? 1,
     watchDevicePixelRatio: (callback) => {
       // A media query matching the *current* ratio stops matching when it changes;
@@ -134,8 +138,15 @@ export class CanvasHostController {
     this.unsubscribeWorker = this.deps.onMessage(this.onWorkerMessage);
     this.unwatchDpr = this.deps.watchDevicePixelRatio(this.onDprChange);
     this.deps.post({ type: 'canvas:tier', tier: this._tier });
+    this.deps.visibilityTarget.addEventListener('visibilitychange', this.onVisibilityChange);
+    if (this.deps.visibilityTarget.visibilityState === 'hidden') this.onVisibilityChange();
     this.syncPointerListening();
   }
+
+  // Worker rAF is not throttled in a background tab; the orchestrator stops on this instead.
+  private readonly onVisibilityChange = () => {
+    this.deps.post({ type: 'canvas:page-hidden', hidden: this.deps.visibilityTarget.visibilityState === 'hidden' });
+  };
 
   get tier(): MotionTier {
     return this._tier;
@@ -310,6 +321,7 @@ export class CanvasHostController {
     this.syncPointerListening();
     this.unsubscribeWorker();
     this.unwatchDpr();
+    this.deps.visibilityTarget.removeEventListener('visibilitychange', this.onVisibilityChange);
     this.statsListeners.clear();
     this.tierListeners.clear();
   }

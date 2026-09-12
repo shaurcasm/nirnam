@@ -82,6 +82,7 @@ class FakeIntersectionObserver {
   }
 }
 
+let visibilityTarget: FakeTarget & { visibilityState: 'visible' | 'hidden' };
 let posted: Array<{ message: HostMessage; transfer: Transferable[] | undefined }>;
 let workerListeners: Set<(m: OrchestratorMessage) => void>;
 let pointerTarget: FakeTarget;
@@ -104,6 +105,7 @@ function deps(): HostDeps {
     ResizeObserver: FakeResizeObserver as unknown as typeof ResizeObserver,
     IntersectionObserver: FakeIntersectionObserver as unknown as typeof IntersectionObserver,
     pointerTarget: pointerTarget as unknown as EventTarget,
+    visibilityTarget: visibilityTarget as unknown as Document,
     devicePixelRatio: () => dpr,
     watchDevicePixelRatio: (cb) => {
       dprListeners.push(cb);
@@ -129,6 +131,7 @@ beforeEach(() => {
   posted = [];
   workerListeners = new Set();
   pointerTarget = new FakeTarget();
+  visibilityTarget = Object.assign(new FakeTarget(), { visibilityState: 'visible' as const });
   frames = [];
   deferred = [];
   dpr = 2;
@@ -320,6 +323,32 @@ describe('pointer', () => {
     flushFrames();
 
     expect(messagesOfType('canvas:pointer')[0].pointer).toMatchObject({ x: 10, y: 10 });
+  });
+});
+
+// --- page visibility ---------------------------------------------------------
+
+describe('page visibility', () => {
+  it('tells the orchestrator when the document is hidden and when it is back', () => {
+    visibilityTarget.visibilityState = 'hidden';
+    visibilityTarget.emit('visibilitychange', {});
+    visibilityTarget.visibilityState = 'visible';
+    visibilityTarget.emit('visibilitychange', {});
+
+    expect(messagesOfType('canvas:page-hidden').map(m => m.hidden)).toEqual([true, false]);
+  });
+
+  it('reports a document that is already hidden at construction', () => {
+    host.dispose();
+    posted = [];
+    visibilityTarget.visibilityState = 'hidden';
+    host = new CanvasHostController(deps(), { tier: 'full' });
+    expect(messagesOfType('canvas:page-hidden').map(m => m.hidden)).toEqual([true]);
+  });
+
+  it('stops listening on dispose', () => {
+    host.dispose();
+    expect(visibilityTarget.count('visibilitychange')).toBe(0);
   });
 });
 

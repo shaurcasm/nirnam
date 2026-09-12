@@ -10,7 +10,7 @@ import type { HostMessage } from '../src/canvas/types';
 
 const g = globalThis as unknown as Record<string, unknown>;
 const saved: Record<string, unknown> = {};
-const GLOBALS = ['window', 'devicePixelRatio', 'matchMedia', 'requestAnimationFrame', 'cancelAnimationFrame', 'self'];
+const GLOBALS = ['window', 'document', 'devicePixelRatio', 'matchMedia', 'requestAnimationFrame', 'cancelAnimationFrame', 'self'];
 
 beforeEach(() => {
   GLOBALS.forEach(k => { saved[k] = g[k]; });
@@ -58,6 +58,11 @@ describe('CanvasHostController browser defaults', () => {
         windowListeners.get(type)!.add(l);
       },
       removeEventListener: (type: string, l: (e: unknown) => void) => windowListeners.get(type)?.delete(l),
+    };
+    g.document = {
+      visibilityState: 'visible',
+      addEventListener: jest.fn(),
+      removeEventListener: jest.fn(),
     };
   }
 
@@ -130,11 +135,22 @@ describe('CanvasHostController browser defaults', () => {
     host.dispose();
   });
 
-  it('copes without matchMedia, rAF or window', () => {
+  it('reads document visibility from the real document by default', () => {
+    installBrowser();
+    (g.document as { visibilityState: string }).visibilityState = 'hidden';
+    const host = makeHost();
+    expect(posted).toContainEqual({ type: 'canvas:page-hidden', hidden: true });
+    expect((g.document as { addEventListener: jest.Mock }).addEventListener).toHaveBeenCalledWith('visibilitychange', expect.any(Function));
+    host.dispose();
+    expect((g.document as { removeEventListener: jest.Mock }).removeEventListener).toHaveBeenCalledWith('visibilitychange', expect.any(Function));
+  });
+
+  it('copes without matchMedia, rAF, window or document', () => {
     installBrowser();
     delete g.matchMedia;
     delete g.requestAnimationFrame;
     delete g.cancelAnimationFrame;
+    delete g.document;
     g.window = { addEventListener: () => {}, removeEventListener: () => {} };
     g.devicePixelRatio = undefined;
 

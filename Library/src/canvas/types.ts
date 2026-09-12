@@ -122,6 +122,15 @@ export interface TierMessage {
   type: 'canvas:tier';
   tier: MotionTier;
 }
+/**
+ * The document went hidden or came back. Worker `requestAnimationFrame` is
+ * not throttled for background tabs, so without this the loop would draw
+ * full frames nobody sees for as long as the tab sits behind another.
+ */
+export interface PageHiddenMessage {
+  type: 'canvas:page-hidden';
+  hidden: boolean;
+}
 
 export type HostMessage =
   | AttachMessage
@@ -130,7 +139,8 @@ export type HostMessage =
   | PointerMessage
   | StateMessage
   | DetachMessage
-  | TierMessage;
+  | TierMessage
+  | PageHiddenMessage;
 
 // ---- Protocol: orchestrator → host ------------------------------------------
 

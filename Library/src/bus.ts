@@ -3,6 +3,7 @@ import {
   NirnamErrorCode,
   NirnamRequestError,
   RequestType,
+  NIRNAM_CONNECT,
 } from './types';
 import type {
   NirnamBusOptions,
@@ -16,20 +17,23 @@ import type {
   PublishOptions,
   SubscribeOptions,
 } from './types';
+import type { BusConnectionKind } from './types';
 import { DataEvent } from './data-event';
 import { persistMessage, replayMessages, DEFAULT_PERSISTENCE_TTL } from './persistence';
+import { openHubPort } from './hub-port';
+import type { BusPort, HubConnection } from './hub-port';
 
 const PAGE_ID = Math.random().toString(36).slice(2);
 const CHANNEL_NAME = 'nirnam-bus-v1';
-const WORKER_NAME = 'nirnam-message-worker';
 
 const STREAM_END_SENTINEL = Symbol('nirnam.stream.end');
 
 let workerBlobUrl: string | null = null;
 
 // Injected at bundle time by @palinc/nirnam/vite, /rsbuild, or /webpack.
-// When present, createBus() uses a static-URL SharedWorker (Layer 3),
-// enabling true cross-tab sharing across all tabs on the same origin.
+// When present, the worker (dedicated or shared) loads from this static URL
+// instead of a Blob URL — what a strict `worker-src` CSP needs, and what
+// lets a SharedWorker be shared across tabs.
 declare const __NIRNAM_STATIC_WORKER_URL__: string | undefined;
 
 function resolveWorkerUrl(staticUrl?: string): string {
@@ -44,6 +48,12 @@ function resolveWorkerUrl(staticUrl?: string): string {
   return workerBlobUrl;
 }
 
+/** A participant this bus introduced to the hub. */
+export interface Adoption {
+  /** Remove the participant from the hub. Idempotent from the hub's side. */
+  release(): void;
+}
+
 interface StreamPending {
   push(chunk: unknown): void;
   end(): void;
@@ -51,16 +61,18 @@ interface StreamPending {
 }
 
 /**
- * Three-layer hybrid message bus:
+ * The bus: one participant's connection to a routing hub, plus a
+ * BroadcastChannel for cross-tab fan-out.
  *
- * Layer 1 - BroadcastChannel: cross-tab pub/sub fan-out, zero deployment.
- * Layer 2 - Blob URL SharedWorker: within-page subscriber registry, routing,
- *            request-reply, streaming, and agent registration.
- * Layer 3 - Static URL SharedWorker (opt-in via workerUrl): true cross-tab
- *            SharedWorker sharing when a static file can be served.
+ * The hub — subscriber registry, request-reply routing, streaming, agent
+ * registration — runs in a dedicated Worker by default, in a SharedWorker on
+ * request, or inline on this thread. The bus does not care which; see
+ * `HubKind` for what each one gives up.
+ *
+ * BroadcastChannel carries `publish()` to every other tab regardless of hub.
  */
 export class NirnamBus {
-  private readonly worker: SharedWorker;
+  private readonly connection: HubConnection;
   private readonly channel: BroadcastChannel | null;
   private readonly handlers = new Map<string, Set<SubscribeHandler>>();
   private readonly requestHandlers = new Map<string, RequestHandler>();
@@ -79,26 +91,41 @@ export class NirnamBus {
   private readonly dispatchDOMEvents: boolean;
   private readonly defaultTtl: number;
 
-  constructor(options: NirnamBusOptions = {}) {
-    const { workerUrl, useBroadcastChannel = true, requestTimeout = 5000, dispatchDOMEvents = false, persistence } = options;
+  /**
+   * @param connection An already-open connection to use instead of choosing a
+   *   hub from `options.hub` — how a worker bus is built over a port it was
+   *   handed. Such a bus has no BroadcastChannel: the hub is its whole reach.
+   */
+  constructor(options: NirnamBusOptions = {}, connection?: HubConnection) {
+    const { hub, workerUrl, useBroadcastChannel = true, requestTimeout = 5000, dispatchDOMEvents = false, persistence } = options;
     this.dispatchDOMEvents = dispatchDOMEvents;
     this.defaultTtl = persistence?.defaultTtl ?? DEFAULT_PERSISTENCE_TTL;
 
     this.timeout = requestTimeout;
 
-    this.worker = new SharedWorker(resolveWorkerUrl(workerUrl), { name: WORKER_NAME });
-    this.worker.port.onmessage = (e) => this._handleWorkerMessage(e);
-    this.worker.onerror = (e) => console.error('[Nirnam]', e);
-    this.worker.port.start();
+    this.connection = connection ?? openHubPort(hub, () => resolveWorkerUrl(workerUrl));
+    this.port.onmessage = (e) => this._handleWorkerMessage(e);
 
     this.channel =
-      useBroadcastChannel && typeof BroadcastChannel !== 'undefined'
+      !connection && useBroadcastChannel && typeof BroadcastChannel !== 'undefined'
         ? new BroadcastChannel(CHANNEL_NAME)
         : null;
 
     if (this.channel) {
       this.channel.onmessage = (e) => this._handleChannelMessage(e);
     }
+  }
+
+  /**
+   * Which hub this bus actually connected to, after any fallback — or
+   * `'port'` for a bus built over a port another bus adopted.
+   */
+  get hub(): BusConnectionKind {
+    return this.connection.kind;
+  }
+
+  private get port(): BusPort {
+    return this.connection.port;
   }
 
   // ---- Pub/Sub (BROAD) -------------------------------------------------------
@@ -116,7 +143,7 @@ export class NirnamBus {
   }
 
   publish<T>(topic: string, payload: T, options?: PublishOptions): void {
-    this.worker.port.postMessage({ type: 'broadcast', topic, payload, sourcePageId: PAGE_ID });
+    this.port.postMessage({ type: 'broadcast', topic, payload, sourcePageId: PAGE_ID });
     this.channel?.postMessage({ type: 'broadcast', topic, payload, sourcePageId: PAGE_ID });
     if (this.dispatchDOMEvents && typeof window !== 'undefined') {
       window.dispatchEvent(new DataEvent<T>(RequestType.BROAD, topic, payload));
@@ -150,7 +177,7 @@ export class NirnamBus {
         ));
       }, ms);
       this.pending.set(requestId, { resolve: resolve as (v: unknown) => void, reject, timer });
-      this.worker.port.postMessage({ type: 'request', topic, payload, requestId });
+      this.port.postMessage({ type: 'request', topic, payload, requestId });
     });
   }
 
@@ -186,7 +213,7 @@ export class NirnamBus {
       },
     });
 
-    this.worker.port.postMessage({ type: 'request-stream', topic, payload, requestId });
+    this.port.postMessage({ type: 'request-stream', topic, payload, requestId });
 
     return {
       [Symbol.asyncIterator]: () => ({
@@ -207,10 +234,11 @@ export class NirnamBus {
 
   /**
    * Register this bus as an agent with the given capabilities.
-   * The registration is scoped to the SharedWorker process (within-page).
+   * The registration is scoped to the hub — this page, or every tab of the
+   * origin under a shared hub.
    */
   register(registration: AgentRegistration): void {
-    this.worker.port.postMessage({
+    this.port.postMessage({
       type: 'register',
       agentId: registration.agentId,
       capabilities: registration.capabilities,
@@ -219,14 +247,14 @@ export class NirnamBus {
   }
 
   /**
-   * Discover all currently registered agents in the SharedWorker.
+   * Discover all currently registered agents on the hub.
    * Returns a snapshot; subscribe to onAgentChange for live updates.
    */
   discoverAgents(): Promise<AgentRegistration[]> {
     const requestId = `discover-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     return new Promise<AgentRegistration[]>((resolve) => {
       this.pendingDiscoveries.set(requestId, resolve);
-      this.worker.port.postMessage({ type: 'discover', requestId });
+      this.port.postMessage({ type: 'discover', requestId });
     });
   }
 
@@ -238,16 +266,52 @@ export class NirnamBus {
   onAgentChange(handler: AgentChangeHandler): UnsubscribeFn {
     if (!this.isWatchingAgents) {
       this.isWatchingAgents = true;
-      this.worker.port.postMessage({ type: 'watch-agents' });
+      this.port.postMessage({ type: 'watch-agents' });
     }
     this.agentChangeHandlers.add(handler);
     return () => this.agentChangeHandlers.delete(handler);
   }
 
+  // ---- Participants ----------------------------------------------------------
+
+  /**
+   * Hand the hub the other end of a channel, making whoever holds it a full
+   * participant — a dedicated worker, typically, since a worker can reach the
+   * hub only through a port it is given. After this, traffic between that
+   * participant and the hub never touches this thread.
+   *
+   * The port is transferred: do not use it here afterwards. Call `release()`
+   * on the returned handle when the participant goes away — terminating a
+   * worker does not reliably close its ports, and a dead port left in the
+   * hub keeps receiving its share of round-robin requests.
+   */
+  adoptPort(port: MessagePort): Adoption {
+    const portId = `${PAGE_ID}-${Math.random().toString(36).slice(2)}`;
+    this.port.postMessage({ type: 'connect', portId }, [port]);
+    return { release: () => this.port.postMessage({ type: 'disconnect-port', portId }) };
+  }
+
+  /**
+   * Make a dedicated worker of your own a participant: one end of a fresh
+   * channel goes to the hub, the other to the worker in a `nirnam:connect`
+   * message, which `connectWorkerBus()` from `@palinc/nirnam/worker` awaits.
+   * `release()` the handle before terminating the worker.
+   */
+  adoptWorker(worker: Worker): Adoption {
+    const { port1, port2 } = new MessageChannel();
+    const adoption = this.adoptPort(port1);
+    worker.postMessage({ type: NIRNAM_CONNECT }, [port2]);
+    return adoption;
+  }
+
   // ---- Lifecycle -------------------------------------------------------------
 
+  /**
+   * Leave the hub and close the channel. Under a dedicated hub the worker
+   * terminates once the last bus on the page has closed.
+   */
   close(): void {
-    this.worker.port.close();
+    this.connection.release();
     this.channel?.close();
   }
 
@@ -256,7 +320,7 @@ export class NirnamBus {
   private _ensureSubscribed(topic: string): void {
     if (!this.subscribedTopics.has(topic)) {
       this.subscribedTopics.add(topic);
-      this.worker.port.postMessage({ type: 'subscribe', topic });
+      this.port.postMessage({ type: 'subscribe', topic });
     }
   }
 
@@ -274,12 +338,13 @@ export class NirnamBus {
     const hasStreamHandler = this.streamHandlers.has(topic);
     if (!hasHandlers && !hasRequestHandler && !hasStreamHandler && this.subscribedTopics.has(topic)) {
       this.subscribedTopics.delete(topic);
-      this.worker.port.postMessage({ type: 'unsubscribe', topic });
+      this.port.postMessage({ type: 'unsubscribe', topic });
     }
   }
 
-  private _handleWorkerMessage(event: MessageEvent<NirnamMessage>): void {
-    const { type, topic, payload, requestId, error, code } = event.data;
+  private _handleWorkerMessage(event: { data: unknown }): void {
+    const message = event.data as NirnamMessage;
+    const { type, topic, payload, requestId, error, code } = message;
 
     switch (type) {
       case 'broadcast':
@@ -293,16 +358,25 @@ export class NirnamBus {
             Promise.resolve()
               .then(() => handler(payload))
               .then(result => {
-                this.worker.port.postMessage({ type: 'response', requestId, payload: result });
+                this.port.postMessage({ type: 'response', requestId, payload: result });
               })
               .catch(err => {
-                this.worker.port.postMessage({
+                this.port.postMessage({
                   type: 'error',
                   requestId,
                   error: String((err as Error).message ?? err),
                   code: NirnamErrorCode.HANDLER_REJECTED,
                 });
               });
+          } else {
+            // Subscribed for broadcasts only; the hub cannot tell. Say so
+            // rather than leave the requester to time out.
+            this.port.postMessage({
+              type: 'error',
+              requestId,
+              error: `No request handler registered for topic "${topic}"`,
+              code: NirnamErrorCode.NO_HANDLER,
+            });
           }
         }
         break;
@@ -314,11 +388,11 @@ export class NirnamBus {
             (async () => {
               try {
                 for await (const chunk of handler(payload)) {
-                  this.worker.port.postMessage({ type: 'stream-chunk', requestId, payload: chunk });
+                  this.port.postMessage({ type: 'stream-chunk', requestId, payload: chunk });
                 }
-                this.worker.port.postMessage({ type: 'stream-end', requestId });
+                this.port.postMessage({ type: 'stream-end', requestId });
               } catch (err) {
-                this.worker.port.postMessage({
+                this.port.postMessage({
                   type: 'error',
                   requestId,
                   error: String((err as Error).message ?? err),
@@ -327,7 +401,7 @@ export class NirnamBus {
               }
             })();
           } else {
-            this.worker.port.postMessage({
+            this.port.postMessage({
               type: 'error',
               requestId,
               error: `No stream handler registered for topic "${topic}"`,
@@ -382,19 +456,19 @@ export class NirnamBus {
           const resolve = this.pendingDiscoveries.get(requestId);
           if (resolve) {
             this.pendingDiscoveries.delete(requestId);
-            resolve((event.data.agents as AgentRegistration[]) ?? []);
+            resolve((message.agents as AgentRegistration[]) ?? []);
           }
         }
         break;
 
       case 'agent-joined': {
-        const agent = event.data.agent as AgentRegistration;
+        const agent = message.agent as AgentRegistration;
         this.agentChangeHandlers.forEach(h => h({ type: 'join', agent }));
         break;
       }
 
       case 'agent-left': {
-        const agentId = event.data.agentId as string;
+        const agentId = message.agentId as string;
         this.agentChangeHandlers.forEach(h => h({ type: 'leave', agentId }));
         break;
       }

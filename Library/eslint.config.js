@@ -4,7 +4,7 @@ import globals from 'globals';
 
 export default [
   {
-    ignores: ['dist/**', 'node_modules/**', 'coverage/**', 'tests/**'],
+    ignores: ['dist/**', 'node_modules/**', 'coverage/**', 'tests/**', 'src/worker-source.ts'],
   },
   {
     files: ['src/**/*.ts'],

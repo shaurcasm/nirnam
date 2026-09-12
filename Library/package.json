@@ -43,6 +43,21 @@
       "require": "./dist/agents-testing.js",
       "types": "./dist/agents-testing.d.ts"
     },
+    "./worker": {
+      "import": "./dist/worker.esm.js",
+      "require": "./dist/worker.js",
+      "types": "./dist/worker.d.ts"
+    },
+    "./canvas": {
+      "import": "./dist/canvas.esm.js",
+      "require": "./dist/canvas.js",
+      "types": "./dist/canvas.d.ts"
+    },
+    "./canvas/react": {
+      "import": "./dist/canvas-react.esm.js",
+      "require": "./dist/canvas-react.js",
+      "types": "./dist/canvas-react.d.ts"
+    },
     "./vite": {
       "import": "./dist/vite.esm.js",
       "require": "./dist/vite.js",
@@ -66,7 +81,8 @@
     "build": "rollup -c",
     "build:watch": "rollup -c -w",
     "clean": "rimraf dist",
-    "prebuild": "npm run clean",
+    "prebuild": "npm run clean && npm run build:worker",
+    "build:worker": "node scripts/build-worker.mjs",
     "test": "jest",
     "test:coverage": "jest --coverage",
     "lint": "eslint",

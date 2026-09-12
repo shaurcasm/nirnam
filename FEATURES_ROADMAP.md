@@ -1,12 +1,10 @@
 ﻿# Nirnam â€” Features Roadmap
 
-This document tracks planned features on top of the core three-layer hybrid bus
-(SharedWorker + BroadcastChannel + opt-in static URL).
-
-The current library (`Library/`) ships:
-- `publish` / `subscribe` â€” BROAD fan-out (Layer 1 + 2)
-- `request` / `handle` â€” NARROW request-reply with correlation IDs (Layer 2)
-- `createBus(options?)` â€” clean factory, no singleton anti-pattern
+This document tracks planned features on top of the core bus: a routing hub
+in a Web Worker (dedicated by default, SharedWorker on request, inline for
+tests) plus BroadcastChannel cross-tab fan-out. See §8 for the hub model;
+older sections still say "Layer 1/2/3" where they were written against the
+SharedWorker-only design.
 
 ---
 
@@ -283,6 +281,187 @@ module.exports = { plugins: [new NirnamWebpackPlugin()] };
 // App code — URL auto-injected by plugin, no options needed
 const bus = createBus(); // automatically uses /nirnam-worker.js when plugin is present
 ```
+
+---
+
+## 8. Pluggable Hub — dedicated Worker by default (v2.0.0)
+
+**Status:** Complete (branch `feat/pluggable-hub`, 2026-09-13). This is the 2.0 breaking change.
+
+**Purpose:** `createBus()` currently constructs a `SharedWorker` unconditionally
+(`bus.ts:89`, no feature detection). Chrome on Android does not implement
+`SharedWorker`, so every mobile-first consumer throws at startup. Cross-tab
+routing — the SharedWorker's reason to exist — is a niche need; surviving a
+reload is better served by §6 (IndexedDB persistence). So the hub becomes a
+choice, and the default becomes the one every browser has.
+
+**Design:**
+
+`MessageBus` in `worker-source.ts` is already environment-agnostic — it holds
+ports and routes between them; `onconnect` is the only SharedWorker-specific
+line. Extract it into `src/hub.ts`, which is (a) stringified into the worker
+source as now and (b) importable on the main thread.
+
+```ts
+createBus({ hub?: 'dedicated' | 'shared' | 'inline' })   // default: 'dedicated'
+```
+
+| Hub | Reach | Hops (main → main) | Lifetime |
+|---|---|---|---|
+| `dedicated` | this page | 2, in-process | the page; `close()` calls `terminate()` |
+| `shared` | every tab of the origin (Layers 2/3 today) | 2, possibly cross-process | last tab of the origin |
+| `inline` | this page | 0 | the page; nothing to start — the test hub |
+
+- `shared` is opt-in and feature-detected: `typeof SharedWorker === 'undefined'`
+  falls back to `dedicated` with a `console.warn`, never a throw.
+- Every hub accepts participants as transferred `MessagePort`s via a
+  `{ type: 'connect' }` message carrying the port, handled by the same code
+  `onconnect` calls today. On `shared` and `dedicated` that message arrives on
+  the worker; on `inline` it is a direct call. This is the mechanism §9 builds on.
+- Layer 1 (`BroadcastChannel`) is unchanged and hub-independent, so cross-tab
+  fire-and-forget pub/sub still works under `dedicated`. What `dedicated`
+  gives up is cross-tab request-reply and `scope: 'page'` agents — those
+  document `hub: 'shared'` as a requirement.
+- Build plugins (§7) stay useful under every worker hub: a static URL is what
+  a strict `worker-src` CSP needs, and what lets a SharedWorker be shared
+  across tabs. Without a plugin both worker hubs load from a Blob URL, classic
+  mode.
+- `bus.close()` on `dedicated` terminates the worker — a real teardown, which
+  React StrictMode consumers currently work around by never closing.
+
+**Breaking:** default hub changes; consumers relying on cross-tab request-reply
+or page-scope agents must pass `hub: 'shared'`. Examples `cross-tab-agent/` and
+`static-worker/` get that line and a note. Everything else is source-compatible.
+
+**Shipped:**
+- `src/hub.ts` — `MessageHub`, the routing core, in TypeScript; imported by the
+  inline hub and bundled into the worker.
+- `src/worker-entry.ts` → `scripts/build-worker.mjs` → generated
+  `src/worker-source.ts` (5 KB). `npm run build:worker`; `--check` guards
+  staleness and runs as a test.
+- `src/hub-port.ts` — `openHubPort()`, `resolveHubKind()` with once-only
+  warnings, per-URL dedicated-worker refcount, `disposeHubs()` for tests/HMR.
+- `NirnamBus.hub`, `NirnamBus.adoptPort(port)`, `close()` that really leaves.
+- Two latent bugs surfaced by routing tests through the real hub instead of a
+  mock: the worker had no `error` case, so a handler rejection never reached
+  the requester (it timed out); and a bus subscribed for broadcasts only
+  dropped requests routed to it instead of answering `NO_HANDLER`.
+
+**Tests:** `tests/hub.test.ts` (hub with fake ports), `tests/hub-port.test.ts`
+(selection, fallback, worker lifetime, adoption), `tests/worker-source.test.ts`
+(the generated bundle evaluated in a fake worker scope, both wiring paths),
+and `tests/bus.test.ts` running the whole bus suite once per hub. The test
+mocks are transport shims only — routing is the real `MessageHub`.
+
+---
+
+## 9. Worker Participants — `@palinc/nirnam/worker`
+
+**Status:** Complete (branch `feat/pluggable-hub`, 2026-09-13; ships with v2.0.0).
+
+**Purpose:** Let a dedicated worker be a full bus participant. `SharedWorker` is
+`[Exposed=Window]`, so a worker can never call `createBus()`; and relaying
+through the main thread puts every message on the thread the worker exists to
+avoid. With §8's port adoption the worker holds one end of a `MessageChannel`
+and the hub the other — worker ↔ hub traffic never touches main.
+
+```ts
+// main
+const { port1, port2 } = new MessageChannel();
+bus.adoptPort(port1);
+worker.postMessage({ type: 'nirnam:connect' }, [port2]);
+
+// worker
+import { createWorkerBus } from '@palinc/nirnam/worker';
+const bus = createWorkerBus(port2);   // subscribe / publish / request / handle / requestStream
+```
+
+**Shipped:** `NirnamBus` takes an optional pre-opened connection, which is all
+`createWorkerBus(port)` needs (`bus.hub === 'port'`). `bus.adoptWorker(worker)`
+does the handshake from the page — a fresh `MessageChannel`, one end adopted,
+the other posted as `{ type: NIRNAM_CONNECT }` — and `connectWorkerBus()`
+awaits it in the worker without taking over `self.onmessage`. No
+`BroadcastChannel` in the worker client; the hub already fans out. No DOM
+events.
+
+**Tests:** `tests/worker-bus.test.ts` — a main-side bus on the `inline` hub and
+a worker bus over a mock channel: publish, request, stream and agent discovery
+in both directions, teardown, and both handshake helpers.
+
+---
+
+## 10. `@palinc/nirnam/canvas` — off-main-thread animation runtime
+
+**Status:** `/canvas` and `/canvas/react` complete (branch `feat/pluggable-hub`, 2026-09-13; ships with v2.0.0). `/canvas/three` not started. Consumer: Wevaad Phase 8; design notes live there.
+
+**Purpose:** The runtime for rendering animated surfaces on a dedicated worker
+via `OffscreenCanvas`, with the worker on the bus (§9) for state at event
+frequency and a direct port for the data plane (canvas transfer, pointer
+input, audio levels). Nirnam ships the runtime; consumers ship the surfaces.
+Mirrors the `agents` sub-package: own Rollup entries, optional peers, meant to
+be imported lazily.
+
+**Entries:**
+
+`@palinc/nirnam/canvas` — worker side.
+```ts
+interface Surface<State = unknown> {
+  attach(canvas: OffscreenCanvas, opts: { width: number; height: number; dpr: number }): void;
+  resize(width: number, height: number, dpr: number): void;
+  frame(dt: number, input: FrameInput): void;     // pointer, visibility, tier
+  onState?(state: State): void;
+  detach(): void;
+}
+createOrchestrator({ surfaces, budget: { targetFps, maxDpr } });
+```
+One `requestAnimationFrame` drives every attached surface (no phase drift
+between them). Dispatch by `surfaceId`. Invisible surfaces skipped; hidden tab
+stops the loop (worker `rAF` already throttles with the document). The
+orchestrator measures its own frame time, publishes a 1 Hz stats summary on a
+topic the host names, and steps its own tier down when p95 is over budget.
+
+`@palinc/nirnam/canvas/react` — main side.
+```tsx
+<CanvasHost worker={() => new Worker(url, { type: 'module' })} tier="full" statsTopic="...">
+const ref = useSurface('tree', { state });   // → <canvas ref={ref} />
+```
+Creates the worker once, performs the §9 handshake, and per surface: transfers
+the canvas (guarding React StrictMode's double mount — `transferControlToOffscreen()`
+is one-shot), forwards `ResizeObserver` size + DPR, `IntersectionObserver`
+visibility, and pointer input batched via `getCoalescedEvents()` to one message
+per frame over the direct port. Tier is a prop; the consumer decides it.
+
+`@palinc/nirnam/canvas/three` — worker side, later (v2.2.0 or when pulled).
+An R3F root on an `OffscreenCanvas`: `size` fed from host resize messages, an
+`events` connector over the forwarded pointer stream, `ImageBitmapLoader` for
+textures. Peers `three`, `@react-three/fiber`, optional.
+
+**Non-goals:** any surface implementation; text or accessibility inside a
+canvas (surfaces are decorative by contract); `SharedArrayBuffer` input
+(needs cross-origin isolation, hostile to Module Federation).
+
+**Shipped:** `src/canvas/types.ts` (the `Surface` contract and the host ↔
+orchestrator protocol), `src/canvas/orchestrator.ts`, `src/canvas/host.ts`
+(`CanvasHostController`, framework-free, every DOM dependency injectable),
+`src/canvas/tier.ts` (`resolveMotionTier`, `probeMotionCapabilities`),
+`src/canvas-react.ts` (`CanvasHost`, `useSurface`, `useMotionTier`).
+
+Found while running `Examples/canvas/` in Chrome: terminating a worker does
+not fire `close` on the ports it held, so the hub kept round-robining
+requests onto dead participants (1 in 3 requests timed out after a
+StrictMode start plus an off/on cycle). `adoptPort` / `adoptWorker` now
+return an `Adoption` whose `release()` removes the port by id
+(`disconnect-port`), and `CanvasHost` releases before it terminates.
+
+**Tests:** `tests/canvas-orchestrator.test.ts` (fake clock: attach/detach,
+one rAF for N surfaces, dt cap, frame-rate hold per tier, pointer withheld
+under ambient, DPR cap, stats, step-down and its reset),
+`tests/canvas-host.test.ts` (transfer once, deferred detach cancelled by a
+remount, resize/DPR/visibility forwarding, pointer batching in canvas-local
+pixels, tier relay), `tests/canvas-tier.test.ts`, and
+`tests/canvas-defaults.test.ts` for the browser defaults behind the
+injectable dependencies. The React binding is exercised by the example, not
+unit-tested (Jest runs in Node here).
 
 ---
 

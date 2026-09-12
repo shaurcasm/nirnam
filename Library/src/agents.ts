@@ -9,7 +9,7 @@
  * Tab vs page scope:
  *   `scope: 'tab'` (default) — agent lives in this tab only.
  *   `scope: 'page'` — agent registers bus handlers so any tab can call it via
- *   `createAgentProxy()`.  Requires a Layer 3 (static URL SharedWorker) bus for
+ *   `createAgentProxy()`.  Requires a `hub: 'shared'` bus on a static worker URL for
  *   true cross-tab routing.  History is persisted to IndexedDB automatically.
  */
 

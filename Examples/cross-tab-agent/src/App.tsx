@@ -12,7 +12,7 @@
  *              Persists conversation history to IndexedDB between reloads.
  *
  *   CLIENT TABS:  Use createAgentProxy() to forward chat() / chatStream()
- *                 calls to the host tab over the Layer 3 SharedWorker.
+ *                 calls to the host tab over the shared hub (a static-URL SharedWorker).
  *
  * LLM:
  *   Defaults to a local mock that echoes messages — open the LLM panel to
@@ -38,10 +38,10 @@ const AGENT_ID = 'shared-assistant';
 const TAB_ID = Math.random().toString(36).slice(2, 6).toUpperCase();
 
 // The bus is module-level so all re-renders share one connection.
+// Cross-tab request routing needs the shared hub on a static worker URL:
 // nirnamPlugin() (in vite.config.ts) injects __NIRNAM_STATIC_WORKER_URL__ at
-// build time, making this a Layer 3 (static URL) bus — required for cross-tab
-// request routing.
-const bus = createBus();
+// build time, and `hub: 'shared'` opts out of the default dedicated worker.
+const bus = createBus({ hub: 'shared' });
 
 // ---------------------------------------------------------------------------
 // Helpers

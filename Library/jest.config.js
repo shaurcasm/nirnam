@@ -17,6 +17,7 @@ export default {
     'src/react\\.ts',           // React hooks, requires jsdom + @testing-library/react
     'src/angular\\.ts',         // Angular service, requires Angular test setup
     'src/agents-react\\.ts',    // Agent React hooks, requires jsdom + @testing-library/react
+    'src/canvas-react\\.ts',    // Canvas React binding over the tested CanvasHostController; exercised by Examples/canvas
   ],
   coverageThreshold: {
     global: {

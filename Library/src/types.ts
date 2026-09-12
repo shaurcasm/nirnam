@@ -37,7 +37,8 @@ export type NirnamMessageType =
   | 'agent-joined'
   | 'agent-left'
   | 'connect'
-  | 'disconnect';
+  | 'disconnect'
+  | 'disconnect-port';
 
 /**
  * Where the routing hub runs.

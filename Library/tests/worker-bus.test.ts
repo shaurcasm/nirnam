@@ -93,17 +93,20 @@ describe('createWorkerBus', () => {
 });
 
 describe('adoptWorker / connectWorkerBus handshake', () => {
-  it('adoptWorker hands the worker one end of a fresh channel', () => {
+  it('adoptWorker hands the worker one end of a fresh channel and returns a release', () => {
     const fakeWorker = { postMessage: jest.fn() };
     const spy = jest.spyOn((main as unknown as { port: { postMessage: jest.Mock } }).port, 'postMessage');
 
-    main.adoptWorker(fakeWorker as unknown as Worker);
+    const adoption = main.adoptWorker(fakeWorker as unknown as Worker);
 
     const [[message, transfer]] = fakeWorker.postMessage.mock.calls as [[unknown, MockMessageChannel['port2'][]]];
     expect(message).toEqual({ type: NIRNAM_CONNECT });
     expect(transfer).toHaveLength(1);
     // The hub got the other end of the same channel.
-    expect(spy).toHaveBeenCalledWith({ type: 'connect' }, [transfer[0].peer]);
+    expect(spy).toHaveBeenCalledWith({ type: 'connect', portId: expect.any(String) }, [transfer[0].peer]);
+
+    adoption.release();
+    expect(spy).toHaveBeenLastCalledWith({ type: 'disconnect-port', portId: expect.any(String) });
   });
 
   it('connectWorkerBus resolves with a bus once the connect message arrives', async () => {

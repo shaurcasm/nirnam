@@ -323,6 +323,47 @@ bus.handle('render:stats', () => stats);
 
 `adoptWorker` is `adoptPort` plus the handshake: it creates a `MessageChannel`, gives the hub one end and posts the other to the worker in a `nirnam:connect` message. A worker bus has everything but a BroadcastChannel — its reach is the hub, not other tabs.
 
+## Off-main-thread animation
+
+`@palinc/nirnam/canvas` draws animated surfaces into `OffscreenCanvas`es from a dedicated worker, so the main thread — UI, sockets, agents — never pays for a frame. One orchestrator runs one `requestAnimationFrame` for every surface; the worker joins the bus for state at event frequency; pointer input, sizes and visibility go over the worker's own port, batched to one message per frame.
+
+```ts
+// ambient.worker.ts
+import { connectWorkerBus } from '@palinc/nirnam/worker';
+import { createOrchestrator } from '@palinc/nirnam/canvas';
+import type { Surface } from '@palinc/nirnam/canvas';
+
+class Leaves implements Surface {
+  attach(canvas, size) { this.ctx = canvas.getContext('2d'); }
+  frame(dt, { pointer, size, tier }) { /* draw */ }
+}
+
+const orchestrator = createOrchestrator({ surfaces: { leaves: () => new Leaves() } });
+const bus = await connectWorkerBus();
+bus.subscribe('theme:changed', theme => orchestrator.setState('leaves', theme));
+```
+
+```tsx
+// main thread
+import { CanvasHost, useSurface } from '@palinc/nirnam/canvas/react';
+import { resolveMotionTier, probeMotionCapabilities } from '@palinc/nirnam/canvas';
+
+const tier = resolveMotionTier(probeMotionCapabilities(), userPreference); // 'full' | 'ambient' | 'off'
+
+<CanvasHost worker={() => new Worker(new URL('./ambient.worker', import.meta.url), { type: 'module' })} tier={tier} bus={bus}>
+  <Background />
+</CanvasHost>
+
+function Background() {
+  const ref = useSurface('leaves');
+  return <canvas ref={ref} aria-hidden style={{ position: 'fixed', inset: 0, pointerEvents: 'none' }} />;
+}
+```
+
+Three tiers, probed at runtime: `full` (60 fps, pointer-reactive), `ambient` (30 fps, lower DPR, no pointer — low-end or touch devices) and `off` (no worker is even started; `useMotionTier()` lets a component render a static fallback). `prefers-reduced-motion` always wins. The orchestrator reports per-surface frame timing once a second (`onStats`) and steps itself down from `full` to `ambient` after sustained overrun (`onTierChange`). `transferControlToOffscreen()` is one-shot per element, and the host survives React StrictMode's double mount. Without React, `CanvasHostController` is the same thing as a class.
+
+Example: `Examples/canvas/`.
+
 ## Static worker URL
 
 By default the hub worker loads from a Blob URL. Two reasons to serve it as a static file instead: a strict `worker-src` CSP that forbids `blob:`, and the `'shared'` hub, which can only be shared across tabs when every tab loads the same URL. The build plugins do that:
@@ -427,6 +468,8 @@ Requires **Web Workers**, **MessageChannel** and **BroadcastChannel** (all moder
 |--------|----------|
 | `@palinc/nirnam` | `createBus`, `NirnamBus`, `DataEvent`, `MessageHub` |
 | `@palinc/nirnam/worker` | `connectWorkerBus`, `createWorkerBus` — the bus inside your own dedicated worker |
+| `@palinc/nirnam/canvas` | `createOrchestrator`, `CanvasHostController`, `resolveMotionTier`, `probeMotionCapabilities`, `Surface` |
+| `@palinc/nirnam/canvas/react` | `CanvasHost`, `useSurface`, `useMotionTier` |
 | `@palinc/nirnam/react` | `NirnamProvider`, `useNirnam`, `useNirnamPublish`, … |
 | `@palinc/nirnam/angular` | `NirnamService`, `provideNirnam`, `NirnamModule` |
 | `@palinc/nirnam/agents` | `createAgent`, `createAgentProxy`, `connectAgents`, `presets` |

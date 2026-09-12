@@ -48,6 +48,12 @@ function resolveWorkerUrl(staticUrl?: string): string {
   return workerBlobUrl;
 }
 
+/** A participant this bus introduced to the hub. */
+export interface Adoption {
+  /** Remove the participant from the hub. Idempotent from the hub's side. */
+  release(): void;
+}
+
 interface StreamPending {
   push(chunk: unknown): void;
   end(): void;
@@ -274,21 +280,28 @@ export class NirnamBus {
    * hub only through a port it is given. After this, traffic between that
    * participant and the hub never touches this thread.
    *
-   * The port is transferred: do not use it here afterwards.
+   * The port is transferred: do not use it here afterwards. Call `release()`
+   * on the returned handle when the participant goes away — terminating a
+   * worker does not reliably close its ports, and a dead port left in the
+   * hub keeps receiving its share of round-robin requests.
    */
-  adoptPort(port: MessagePort): void {
-    this.port.postMessage({ type: 'connect' }, [port]);
+  adoptPort(port: MessagePort): Adoption {
+    const portId = `${PAGE_ID}-${Math.random().toString(36).slice(2)}`;
+    this.port.postMessage({ type: 'connect', portId }, [port]);
+    return { release: () => this.port.postMessage({ type: 'disconnect-port', portId }) };
   }
 
   /**
    * Make a dedicated worker of your own a participant: one end of a fresh
    * channel goes to the hub, the other to the worker in a `nirnam:connect`
    * message, which `connectWorkerBus()` from `@palinc/nirnam/worker` awaits.
+   * `release()` the handle before terminating the worker.
    */
-  adoptWorker(worker: Worker): void {
+  adoptWorker(worker: Worker): Adoption {
     const { port1, port2 } = new MessageChannel();
-    this.adoptPort(port1);
+    const adoption = this.adoptPort(port1);
     worker.postMessage({ type: NIRNAM_CONNECT }, [port2]);
+    return adoption;
   }
 
   // ---- Lifecycle -------------------------------------------------------------

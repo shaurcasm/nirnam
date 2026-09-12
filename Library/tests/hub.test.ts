@@ -84,6 +84,27 @@ describe('connect', () => {
     a.send({ type: 'connect' });
     expect(hub.portCount).toBe(2);
   });
+
+  it('lets the introducer remove an adopted port by id — a terminated worker never closes its own', () => {
+    const c = fakePort();
+    a.send({ type: 'connect', portId: 'w1' }, [c]);
+    c.send({ type: 'subscribe', topic: 't' });
+
+    a.send({ type: 'disconnect-port', portId: 'w1' });
+
+    expect(hub.portCount).toBe(2);
+    a.send({ type: 'broadcast', topic: 't', payload: 1 });
+    expect(c.postMessage).not.toHaveBeenCalled();
+  });
+
+  it('ignores disconnect-port for an unknown or already-gone id', () => {
+    const c = fakePort();
+    a.send({ type: 'connect', portId: 'w1' }, [c]);
+    hub.disconnect(c);
+    expect(() => a.send({ type: 'disconnect-port', portId: 'w1' })).not.toThrow();
+    expect(() => a.send({ type: 'disconnect-port', portId: 'never' })).not.toThrow();
+    expect(hub.portCount).toBe(2);
+  });
 });
 
 describe('disconnect', () => {
@@ -259,6 +280,7 @@ describe('validation', () => {
     [{ type: 'stream-end' }, 'stream-end requires requestId'],
     [{ type: 'register' }, 'register requires agentId'],
     [{ type: 'discover' }, 'discover requires requestId'],
+    [{ type: 'disconnect-port' }, 'disconnect-port requires portId'],
     [{ type: 'bogus' }, 'Unknown message type: "bogus"'],
   ])('replies with an error for %j', (message, error) => {
     a.send(message);

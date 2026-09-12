@@ -8,10 +8,13 @@
  * the tests drive it with plain objects.
  *
  * A port joins by `connect()`. Any connected port may hand the hub another
- * port with a `{ type: 'connect' }` message carrying it in the transfer list,
- * which is how a participant that cannot reach the hub directly — a dedicated
- * worker, say — is introduced by one that can. A port leaves by a
- * `{ type: 'disconnect' }` message, by closing, or by `disconnect()`.
+ * port with a `{ type: 'connect', portId }` message carrying it in the
+ * transfer list, which is how a participant that cannot reach the hub
+ * directly — a dedicated worker, say — is introduced by one that can. A port
+ * leaves by a `{ type: 'disconnect' }` message, by closing, or by
+ * `disconnect()`; an introduced port can also be removed by whoever
+ * introduced it with `{ type: 'disconnect-port', portId }`, which matters
+ * because terminating a worker does not reliably close its ports.
  */
 
 import type { AgentRegistration } from './types';
@@ -42,6 +45,7 @@ interface HubMessage {
   metadata?: Record<string, unknown>;
   error?: string;
   code?: string;
+  portId?: string;
 }
 
 export class MessageHub {
@@ -52,6 +56,7 @@ export class MessageHub {
   private readonly agentRegistry = new Map<string, AgentRegistration>();
   private readonly agentPortMap = new Map<string, HubPort>();
   private readonly agentWatchers = new Set<HubPort>();
+  private readonly portsById = new Map<string, HubPort>();
 
   get portCount(): number {
     return this.ports.size;
@@ -63,7 +68,10 @@ export class MessageHub {
       const data = event.data as HubMessage | null;
       if (data && typeof data === 'object' && data.type === 'connect') {
         const adopted: HubPort | undefined = event.ports?.[0];
-        if (adopted) this.connect(adopted);
+        if (adopted) {
+          this.connect(adopted);
+          if (data.portId) this.portsById.set(data.portId, adopted);
+        }
         return;
       }
       this.handleMessage(data, port);
@@ -74,6 +82,9 @@ export class MessageHub {
 
   disconnect(port: HubPort): void {
     if (!this.ports.delete(port)) return;
+    this.portsById.forEach((p, id) => {
+      if (p === port) this.portsById.delete(id);
+    });
 
     this.topicSubscribers.forEach((subs, topic) => {
       subs.delete(port);
@@ -148,6 +159,12 @@ export class MessageHub {
         case 'disconnect':
           this.disconnect(port);
           break;
+        case 'disconnect-port': {
+          if (!msg.portId) throw new Error('disconnect-port requires portId');
+          const target = this.portsById.get(msg.portId);
+          if (target) this.disconnect(target);
+          break;
+        }
         default:
           throw new Error(`Unknown message type: "${String(type)}"`);
       }

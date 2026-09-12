@@ -1,4 +1,5 @@
 ﻿export { NirnamBus, createBus } from './bus';
+export type { Adoption } from './bus';
 export { MessageHub } from './hub';
 export { resolveHubKind, disposeHubs } from './hub-port';
 export { RequestType, NirnamErrorCode, NirnamRequestError, NIRNAM_CONNECT } from './types';

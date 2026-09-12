@@ -63,6 +63,7 @@ Examples/
   cross-tab-agent/         host tab runs LLM; other tabs proxy via bus (Vite)
   mcp-agent/               Document Q&A with MCP servers + Ollama (Rsbuild + MF)
   static-worker/           raw SharedWorker without MFEs (Vite)
+  canvas/                  OffscreenCanvas surfaces on a dedicated worker, steered over the bus (Vite)
   angular-react/           Angular host + React remote (planned)
 ```
 
@@ -122,6 +123,9 @@ One "host" tab registers a `scope: 'page'` agent that owns the LLM + tools. Any 
 
 ### `mcp-agent/`
 Three Module Federation apps. Two remotes (`ollama-agent`, `scribe-agent`) expose React components that also spin up MCP servers over `NirnamMCPTransport`. The host connects MCP clients to both and orchestrates a document Q&A workflow.
+
+### `canvas/`
+Two animated surfaces drawn by a dedicated worker via `@palinc/nirnam/canvas`, steered over the bus with `@palinc/nirnam/worker`. Pointer-reactive, tiered (`full` / `ambient` / `off`), survives StrictMode and a route change. Uses the local library (`file:../../Library`) — run `npm run build` in `Library/` first.
 
 ### `static-worker/`
 Raw `hub: 'shared'` setup without any MFE framework — useful if you want to understand cross-tab routing in isolation.

@@ -175,13 +175,43 @@ describe.each(['inline', 'dedicated', 'shared'] as const)('adoptPort on %s', (hu
     return expect(bus.request('t', 'ping')).resolves.toBe('pong');
   });
 
-  it('transfers the port rather than cloning it', () => {
+  it('transfers the port rather than cloning it, tagged with an id', () => {
     const bus = createBus({ hub });
     const { port2 } = new MockMessageChannel();
     const spy = jest.spyOn((bus as unknown as { port: { postMessage: jest.Mock } }).port, 'postMessage');
 
     bus.adoptPort(port2 as unknown as MessagePort);
 
-    expect(spy).toHaveBeenCalledWith({ type: 'connect' }, [port2]);
+    expect(spy).toHaveBeenCalledWith({ type: 'connect', portId: expect.any(String) }, [port2]);
+  });
+
+  it('release() removes the participant from the hub', () => {
+    const bus = createBus({ hub });
+    const { port1, port2 } = new MockMessageChannel();
+    const adoption = bus.adoptPort(port2 as unknown as MessagePort);
+    const received: unknown[] = [];
+    port1.onmessage = (e) => received.push(e.data);
+    port1.postMessage({ type: 'subscribe', topic: 't' });
+
+    adoption.release();
+    bus.publish('t', 'after');
+
+    expect(received).not.toContainEqual(expect.objectContaining({ type: 'broadcast' }));
+  });
+
+  it('a released participant no longer takes its round-robin share of requests', async () => {
+    const bus = createBus({ hub });
+    const { port1, port2 } = new MockMessageChannel();
+    const adoption = bus.adoptPort(port2 as unknown as MessagePort);
+    port1.onmessage = () => { /* a dead worker: never answers */ };
+    port1.postMessage({ type: 'subscribe', topic: 'sum' });
+    bus.handle<number[], number>('sum', ns => ns.reduce((a, b) => a + b, 0));
+
+    adoption.release();
+
+    // Without the release every other request would hang on the dead port.
+    for (let i = 0; i < 4; i++) {
+      await expect(bus.request('sum', [1, 2], 50)).resolves.toBe(3);
+    }
   });
 });

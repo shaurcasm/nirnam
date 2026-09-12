@@ -119,6 +119,25 @@ export default [
     ],
     plugins,
   },
+  // Canvas runtime bundle (@palinc/nirnam/canvas)
+  {
+    input: 'src/canvas.ts',
+    output: [
+      { file: 'dist/canvas.js', format: 'cjs', sourcemap: true },
+      { file: 'dist/canvas.esm.js', format: 'esm', sourcemap: true },
+    ],
+    plugins,
+  },
+  // Canvas React binding (@palinc/nirnam/canvas/react)
+  {
+    input: 'src/canvas-react.ts',
+    external: ['react'],
+    output: [
+      { file: 'dist/canvas-react.js', format: 'cjs', sourcemap: true },
+      { file: 'dist/canvas-react.esm.js', format: 'esm', sourcemap: true },
+    ],
+    plugins,
+  },
   // Vite plugin bundle (node:fs / node:path stay external; worker source is inlined)
   {
     input: 'src/vite.ts',
@@ -175,6 +194,20 @@ export default [
     output: [{ file: 'dist/worker.d.ts', format: 'es' }],
     plugins: [dts()],
     external: [/\.css$/],
+  },
+  // Type declarations -- canvas
+  {
+    input: 'dist/canvas.d.ts',
+    output: [{ file: 'dist/canvas.d.ts', format: 'es' }],
+    plugins: [dts()],
+    external: [/\.css$/],
+  },
+  // Type declarations -- canvas/react
+  {
+    input: 'dist/canvas-react.d.ts',
+    output: [{ file: 'dist/canvas-react.d.ts', format: 'es' }],
+    plugins: [dts()],
+    external: ['react', /\.css$/],
   },
   // Type declarations -- vite
   {

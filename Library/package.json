@@ -48,6 +48,16 @@
       "require": "./dist/worker.js",
       "types": "./dist/worker.d.ts"
     },
+    "./canvas": {
+      "import": "./dist/canvas.esm.js",
+      "require": "./dist/canvas.js",
+      "types": "./dist/canvas.d.ts"
+    },
+    "./canvas/react": {
+      "import": "./dist/canvas-react.esm.js",
+      "require": "./dist/canvas-react.js",
+      "types": "./dist/canvas-react.d.ts"
+    },
     "./vite": {
       "import": "./dist/vite.esm.js",
       "require": "./dist/vite.js",

@@ -392,7 +392,7 @@ in both directions, teardown, and both handshake helpers.
 
 ## 10. `@palinc/nirnam/canvas` — off-main-thread animation runtime
 
-**Status:** Planned (v2.1.0). Consumer: Wevaad Phase 8; design notes live there.
+**Status:** `/canvas` and `/canvas/react` complete (branch `feat/pluggable-hub`, 2026-09-13; ships with v2.0.0). `/canvas/three` not started. Consumer: Wevaad Phase 8; design notes live there.
 
 **Purpose:** The runtime for rendering animated surfaces on a dedicated worker
 via `OffscreenCanvas`, with the worker on the bus (§9) for state at event
@@ -440,10 +440,28 @@ textures. Peers `three`, `@react-three/fiber`, optional.
 canvas (surfaces are decorative by contract); `SharedArrayBuffer` input
 (needs cross-origin isolation, hostile to Module Federation).
 
-**Tests:** orchestrator with a fake `OffscreenCanvas` — attach/resize/detach
-ordering, one `rAF` for N surfaces, skip-when-invisible, tier step-down on
-sustained overrun. `useSurface` under StrictMode. Example:
-`Examples/canvas/` — a bouncing-dot surface that survives a route change.
+**Shipped:** `src/canvas/types.ts` (the `Surface` contract and the host ↔
+orchestrator protocol), `src/canvas/orchestrator.ts`, `src/canvas/host.ts`
+(`CanvasHostController`, framework-free, every DOM dependency injectable),
+`src/canvas/tier.ts` (`resolveMotionTier`, `probeMotionCapabilities`),
+`src/canvas-react.ts` (`CanvasHost`, `useSurface`, `useMotionTier`).
+
+Found while running `Examples/canvas/` in Chrome: terminating a worker does
+not fire `close` on the ports it held, so the hub kept round-robining
+requests onto dead participants (1 in 3 requests timed out after a
+StrictMode start plus an off/on cycle). `adoptPort` / `adoptWorker` now
+return an `Adoption` whose `release()` removes the port by id
+(`disconnect-port`), and `CanvasHost` releases before it terminates.
+
+**Tests:** `tests/canvas-orchestrator.test.ts` (fake clock: attach/detach,
+one rAF for N surfaces, dt cap, frame-rate hold per tier, pointer withheld
+under ambient, DPR cap, stats, step-down and its reset),
+`tests/canvas-host.test.ts` (transfer once, deferred detach cancelled by a
+remount, resize/DPR/visibility forwarding, pointer batching in canvas-local
+pixels, tier relay), `tests/canvas-tier.test.ts`, and
+`tests/canvas-defaults.test.ts` for the browser defaults behind the
+injectable dependencies. The React binding is exercised by the example, not
+unit-tested (Jest runs in Node here).
 
 ---
 

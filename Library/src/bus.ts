@@ -3,6 +3,7 @@ import {
   NirnamErrorCode,
   NirnamRequestError,
   RequestType,
+  NIRNAM_CONNECT,
 } from './types';
 import type {
   NirnamBusOptions,
@@ -16,7 +17,7 @@ import type {
   PublishOptions,
   SubscribeOptions,
 } from './types';
-import type { HubKind } from './types';
+import type { BusConnectionKind } from './types';
 import { DataEvent } from './data-event';
 import { persistMessage, replayMessages, DEFAULT_PERSISTENCE_TTL } from './persistence';
 import { openHubPort } from './hub-port';
@@ -84,18 +85,23 @@ export class NirnamBus {
   private readonly dispatchDOMEvents: boolean;
   private readonly defaultTtl: number;
 
-  constructor(options: NirnamBusOptions = {}) {
+  /**
+   * @param connection An already-open connection to use instead of choosing a
+   *   hub from `options.hub` — how a worker bus is built over a port it was
+   *   handed. Such a bus has no BroadcastChannel: the hub is its whole reach.
+   */
+  constructor(options: NirnamBusOptions = {}, connection?: HubConnection) {
     const { hub, workerUrl, useBroadcastChannel = true, requestTimeout = 5000, dispatchDOMEvents = false, persistence } = options;
     this.dispatchDOMEvents = dispatchDOMEvents;
     this.defaultTtl = persistence?.defaultTtl ?? DEFAULT_PERSISTENCE_TTL;
 
     this.timeout = requestTimeout;
 
-    this.connection = openHubPort(hub, () => resolveWorkerUrl(workerUrl));
+    this.connection = connection ?? openHubPort(hub, () => resolveWorkerUrl(workerUrl));
     this.port.onmessage = (e) => this._handleWorkerMessage(e);
 
     this.channel =
-      useBroadcastChannel && typeof BroadcastChannel !== 'undefined'
+      !connection && useBroadcastChannel && typeof BroadcastChannel !== 'undefined'
         ? new BroadcastChannel(CHANNEL_NAME)
         : null;
 
@@ -104,8 +110,11 @@ export class NirnamBus {
     }
   }
 
-  /** Which hub this bus actually connected to, after any fallback. */
-  get hub(): HubKind {
+  /**
+   * Which hub this bus actually connected to, after any fallback — or
+   * `'port'` for a bus built over a port another bus adopted.
+   */
+  get hub(): BusConnectionKind {
     return this.connection.kind;
   }
 
@@ -269,6 +278,17 @@ export class NirnamBus {
    */
   adoptPort(port: MessagePort): void {
     this.port.postMessage({ type: 'connect' }, [port]);
+  }
+
+  /**
+   * Make a dedicated worker of your own a participant: one end of a fresh
+   * channel goes to the hub, the other to the worker in a `nirnam:connect`
+   * message, which `connectWorkerBus()` from `@palinc/nirnam/worker` awaits.
+   */
+  adoptWorker(worker: Worker): void {
+    const { port1, port2 } = new MessageChannel();
+    this.adoptPort(port1);
+    worker.postMessage({ type: NIRNAM_CONNECT }, [port2]);
   }
 
   // ---- Lifecycle -------------------------------------------------------------

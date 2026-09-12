@@ -52,6 +52,15 @@ export type NirnamMessageType =
  */
 export type HubKind = 'dedicated' | 'shared' | 'inline';
 
+/**
+ * How a bus reached its hub: one of the hub kinds it chose, or `'port'` for a
+ * bus built over a port somebody else adopted into a hub — a worker bus.
+ */
+export type BusConnectionKind = HubKind | 'port';
+
+/** The message `bus.adoptWorker()` sends a worker, carrying its hub port. */
+export const NIRNAM_CONNECT = 'nirnam:connect';
+
 export interface AgentRegistration {
   agentId: string;
   capabilities?: string[];

@@ -110,6 +110,15 @@ export default [
     ],
     plugins,
   },
+  // Worker-side bus bundle (@palinc/nirnam/worker)
+  {
+    input: 'src/worker.ts',
+    output: [
+      { file: 'dist/worker.js', format: 'cjs', sourcemap: true },
+      { file: 'dist/worker.esm.js', format: 'esm', sourcemap: true },
+    ],
+    plugins,
+  },
   // Vite plugin bundle (node:fs / node:path stay external; worker source is inlined)
   {
     input: 'src/vite.ts',
@@ -157,6 +166,13 @@ export default [
   {
     input: 'dist/agents-testing.d.ts',
     output: [{ file: 'dist/agents-testing.d.ts', format: 'es' }],
+    plugins: [dts()],
+    external: [/\.css$/],
+  },
+  // Type declarations -- worker
+  {
+    input: 'dist/worker.d.ts',
+    output: [{ file: 'dist/worker.d.ts', format: 'es' }],
     plugins: [dts()],
     external: [/\.css$/],
   },

@@ -357,7 +357,7 @@ mocks are transport shims only — routing is the real `MessageHub`.
 
 ## 9. Worker Participants — `@palinc/nirnam/worker`
 
-**Status:** Planned (v2.0.0, alongside §8).
+**Status:** Complete (branch `feat/pluggable-hub`, 2026-09-13; ships with v2.0.0).
 
 **Purpose:** Let a dedicated worker be a full bus participant. `SharedWorker` is
 `[Exposed=Window]`, so a worker can never call `createBus()`; and relaying
@@ -376,14 +376,17 @@ import { createWorkerBus } from '@palinc/nirnam/worker';
 const bus = createWorkerBus(port2);   // subscribe / publish / request / handle / requestStream
 ```
 
-`createWorkerBus` is `NirnamBus` with the port injected instead of constructed —
-the refactor is to separate "the client protocol over a port" from "how the
-port was obtained". No `BroadcastChannel` in the worker client; the hub already
-fans out. No DOM events (`dispatchDOMEvents` is a no-op there).
+**Shipped:** `NirnamBus` takes an optional pre-opened connection, which is all
+`createWorkerBus(port)` needs (`bus.hub === 'port'`). `bus.adoptWorker(worker)`
+does the handshake from the page — a fresh `MessageChannel`, one end adopted,
+the other posted as `{ type: NIRNAM_CONNECT }` — and `connectWorkerBus()`
+awaits it in the worker without taking over `self.onmessage`. No
+`BroadcastChannel` in the worker client; the hub already fans out. No DOM
+events.
 
-**Tests:** a jsdom `MessageChannel` between a main-side `NirnamBus` on the
-`inline` hub and a `createWorkerBus` — round-trips for all four patterns, and
-teardown when either side closes.
+**Tests:** `tests/worker-bus.test.ts` — a main-side bus on the `inline` hub and
+a worker bus over a mock channel: publish, request, stream and agent discovery
+in both directions, teardown, and both handshake helpers.
 
 ---
 

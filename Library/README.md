@@ -310,12 +310,18 @@ bus.close();                                // leaves the hub; the last close te
 A dedicated worker of your own — animation, audio analysis — cannot create a bus, but it can be handed a port to the hub. From then on its traffic never crosses the main thread:
 
 ```ts
-const { port1, port2 } = new MessageChannel();
-bus.adoptPort(port1);                                       // the hub now routes to and from port1
-myWorker.postMessage({ type: 'nirnam:connect' }, [port2]);  // the worker speaks the wire protocol over port2
+// main thread
+const worker = new Worker(new URL('./render.worker', import.meta.url), { type: 'module' });
+bus.adoptWorker(worker);
+
+// render.worker.ts
+import { connectWorkerBus } from '@palinc/nirnam/worker';
+const bus = await connectWorkerBus();      // resolves when the page hands over the port
+bus.subscribe('theme:changed', repaint);
+bus.handle('render:stats', () => stats);
 ```
 
-A worker-side client for that port ships as `@palinc/nirnam/worker`.
+`adoptWorker` is `adoptPort` plus the handshake: it creates a `MessageChannel`, gives the hub one end and posts the other to the worker in a `nirnam:connect` message. A worker bus has everything but a BroadcastChannel — its reach is the hub, not other tabs.
 
 ## Static worker URL
 
@@ -419,7 +425,8 @@ Requires **Web Workers**, **MessageChannel** and **BroadcastChannel** (all moder
 
 | Import | Contents |
 |--------|----------|
-| `@palinc/nirnam` | `createBus`, `NirnamBus`, `DataEvent` |
+| `@palinc/nirnam` | `createBus`, `NirnamBus`, `DataEvent`, `MessageHub` |
+| `@palinc/nirnam/worker` | `connectWorkerBus`, `createWorkerBus` — the bus inside your own dedicated worker |
 | `@palinc/nirnam/react` | `NirnamProvider`, `useNirnam`, `useNirnamPublish`, … |
 | `@palinc/nirnam/angular` | `NirnamService`, `provideNirnam`, `NirnamModule` |
 | `@palinc/nirnam/agents` | `createAgent`, `createAgentProxy`, `connectAgents`, `presets` |

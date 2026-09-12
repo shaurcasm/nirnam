@@ -43,6 +43,11 @@
       "require": "./dist/agents-testing.js",
       "types": "./dist/agents-testing.d.ts"
     },
+    "./worker": {
+      "import": "./dist/worker.esm.js",
+      "require": "./dist/worker.js",
+      "types": "./dist/worker.d.ts"
+    },
     "./vite": {
       "import": "./dist/vite.esm.js",
       "require": "./dist/vite.js",

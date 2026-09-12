@@ -9,7 +9,7 @@
 
 import { MessageHub } from './hub';
 import type { HubPort } from './hub';
-import type { HubKind } from './types';
+import type { HubKind, BusConnectionKind } from './types';
 
 /** The client end of a hub connection: what `NirnamBus` talks to. */
 export interface BusPort {
@@ -18,7 +18,7 @@ export interface BusPort {
 }
 
 export interface HubConnection {
-  readonly kind: HubKind;
+  readonly kind: BusConnectionKind;
   readonly port: BusPort;
   /** Leave the hub and release the transport behind the port. */
   release(): void;
@@ -136,6 +136,24 @@ function openDedicated(url: string): HubConnection {
         shared.worker.terminate();
         dedicatedWorkers.delete(url);
       }
+    },
+  };
+}
+
+// ---- over a given port -------------------------------------------------------
+
+/**
+ * A connection over a port that some other bus has already adopted into its
+ * hub — what `@palinc/nirnam/worker` builds on.
+ */
+export function connectionOverPort(port: MessagePort): HubConnection {
+  port.start();
+  return {
+    kind: 'port',
+    port,
+    release: () => {
+      port.postMessage({ type: 'disconnect' });
+      port.close();
     },
   };
 }

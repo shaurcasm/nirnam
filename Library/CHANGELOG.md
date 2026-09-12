@@ -1,3 +1,33 @@
+# [2.0.0](https://github.com/shaurcasm/nirnam/compare/v1.4.1...v2.0.0) (2026-09-12)
+
+
+* feat!: run the hub in a dedicated worker by default ([bd8ec6a](https://github.com/shaurcasm/nirnam/commit/bd8ec6a92e6edd9ae734d5fe3b35d9e416e29d08))
+* feat!: run the hub in a dedicated worker by default ([d0005ed](https://github.com/shaurcasm/nirnam/commit/d0005ed9762f221571422c356fcf438d6fd83115))
+
+
+### Features
+
+* **canvas:** off-main-thread animation runtime ([8624cd5](https://github.com/shaurcasm/nirnam/commit/8624cd5e0b262a846682d16bf73d34871ad28e2e))
+* **canvas:** off-main-thread animation runtime ([6ed3a71](https://github.com/shaurcasm/nirnam/commit/6ed3a71a3f9640c89dbc5724b416fab1a8b2496d))
+* **worker:** let a dedicated worker join the bus ([c45b4f0](https://github.com/shaurcasm/nirnam/commit/c45b4f069bee3c4ce3c90bf6d3c42b156fef9a62))
+* **worker:** let a dedicated worker join the bus ([2a316c4](https://github.com/shaurcasm/nirnam/commit/2a316c46371a885f8575443f1ed68940ccb25e28))
+
+
+### BREAKING CHANGES
+
+* the default hub is a dedicated Worker, scoped to the page.
+Cross-tab request-reply and scope: 'page' agents now need
+createBus({ hub: 'shared' }) on a static worker URL. publish() still reaches
+other tabs via BroadcastChannel regardless of hub.
+* the default hub is a dedicated Worker, scoped to the page.
+Cross-tab request-reply and `scope: 'page'` agents now need
+`createBus({ hub: 'shared' })` on a static worker URL. Build plugins keep
+serving that URL and remain useful under every hub for a strict
+`worker-src` CSP. `publish()` still reaches other tabs via BroadcastChannel
+regardless of hub.
+
+Claude-Session: https://claude.ai/code/session_01BRpgsUrFFSL37zB7RnQiSs
+
 ## [1.4.1](https://github.com/shaurcasm/nirnam/compare/v1.4.0...v1.4.1) (2026-06-26)
 
 

@@ -13,8 +13,8 @@ export interface PageRunRequest { task: string; maxIterations?: number }
  * Lightweight cross-tab proxy for a `scope: 'page'` agent running in another tab.
  *
  * All method calls are forwarded over the Nirnam bus to the host tab that owns the
- * real NirnamAgent instance.  Requires a Layer 3 (static URL SharedWorker) bus so
- * that request routing works across browser tabs.
+ * real NirnamAgent instance.  Requires a `hub: 'shared'` bus on a static worker
+ * URL so that request routing works across browser tabs.
  *
  * @example
  * const proxy = createAgentProxy('my-agent', bus);

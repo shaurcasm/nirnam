@@ -35,7 +35,22 @@ export type NirnamMessageType =
   | 'watch-agents'
   | 'agent-list'
   | 'agent-joined'
-  | 'agent-left';
+  | 'agent-left'
+  | 'connect'
+  | 'disconnect';
+
+/**
+ * Where the routing hub runs.
+ *
+ * - `dedicated` — a Worker owned by this page. Every browser has it, it dies
+ *   with the page, and nothing from another tab contends for it. The default.
+ * - `shared` — a SharedWorker spanning every tab of the origin. Opt in for
+ *   cross-tab request-reply and `scope: 'page'` agents. Falls back to
+ *   `dedicated` where SharedWorker does not exist (Chrome on Android).
+ * - `inline` — the hub runs on the calling thread. Zero hops, nothing to
+ *   start; the hub for tests and for environments without workers.
+ */
+export type HubKind = 'dedicated' | 'shared' | 'inline';
 
 export interface AgentRegistration {
   agentId: string;
@@ -81,7 +96,13 @@ export interface SubscribeOptions {
 }
 
 export interface NirnamBusOptions {
-  /** Opt-in static worker URL (Layer 3). Enables true cross-tab SharedWorker sharing. */
+  /** Which hub routes messages. Default: `'dedicated'`. See `HubKind`. */
+  hub?: HubKind;
+  /**
+   * Static worker script URL. Without it the worker is loaded from a Blob URL,
+   * which a strict `worker-src` CSP may forbid; the build plugins inject one.
+   * Ignored by the `inline` hub.
+   */
   workerUrl?: string;
   /** Enable BroadcastChannel cross-tab fan-out (Layer 1). Default: true. */
   useBroadcastChannel?: boolean;

@@ -12,7 +12,8 @@ export default {
     '/node_modules/',
     '/dist/',
     'tests/setup\\.ts',
-    'src/worker-source\\.ts',   // embedded worker string, mocked in all tests
+    'src/worker-source\\.ts',   // generated worker string; run for real only in worker-source.test.ts
+    'src/worker-entry\\.ts',    // covered through the generated bundle in worker-source.test.ts
     'src/react\\.ts',           // React hooks, requires jsdom + @testing-library/react
     'src/angular\\.ts',         // Angular service, requires Angular test setup
     'src/agents-react\\.ts',    // Agent React hooks, requires jsdom + @testing-library/react

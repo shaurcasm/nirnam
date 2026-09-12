@@ -1,6 +1,6 @@
 # Nirnam
 
-A three-layer hybrid message bus for micro-frontend communication and browser-native AI agents.
+A message bus for micro-frontend communication and browser-native AI agents.
 
 **[npm package →](https://www.npmjs.com/package/@palinc/nirnam)**
 **[Github repo →](https://github.com/shaurcasm/nirnam)
@@ -9,17 +9,17 @@ A three-layer hybrid message bus for micro-frontend communication and browser-na
 
 ## What it does
 
-Nirnam gives every script on a page — Module Federation remotes, iframes, Web Workers, plain `<script>` tags — a shared message bus without a backend. It handles pub/sub, request-reply, streaming, agent registration, and MCP transport, all routed through a SharedWorker.
+Nirnam gives every script on a page — Module Federation remotes, iframes, Web Workers, plain `<script>` tags — a shared message bus without a backend. It handles pub/sub, request-reply, streaming, agent registration, and MCP transport, all routed through a **hub** in a Web Worker.
 
-**Three layers, one API:**
+**One API, three places the hub can run:**
 
-| Layer | Mechanism | Scope |
-|-------|-----------|-------|
-| 1 | BroadcastChannel | Cross-tab fan-out (fire-and-forget pub/sub) |
-| 2 | Blob-URL SharedWorker | Within-page registry, routing, request-reply, streaming |
-| 3 | Static-URL SharedWorker | True cross-tab routing via build plugins (opt-in) |
+| `hub` | Runs in | Reach |
+|-------|---------|-------|
+| `'dedicated'` (default) | a Worker owned by the page | every script on the page |
+| `'shared'` | a SharedWorker | every tab of the origin (opt-in; needs a static worker URL from a build plugin) |
+| `'inline'` | the calling thread | every bus in the module — tests, SSR |
 
-You always call `createBus()` — Nirnam picks the right layer automatically.
+BroadcastChannel carries `publish()` across tabs regardless of hub. Your own workers can join the bus through a transferred `MessagePort`.
 
 ---
 
@@ -115,7 +115,7 @@ Extends the transport example with IndexedDB persistence. Late-joining subscribe
 Two independently-deployed React apps (host + remote) that share state through the bus using Module Federation. Shows `useNirnam` and `useNirnamPublish`.
 
 ### `agents/`
-Three agents in one app — a chat agent, a filesystem agent with File System Access API tools, and a pipeline of two agents where one feeds into the other. Uses the Rsbuild build plugin for Layer 3.
+Three agents in one app — a chat agent, a filesystem agent with File System Access API tools, and a pipeline of two agents where one feeds into the other. Uses the Rsbuild build plugin for a static worker URL.
 
 ### `cross-tab-agent/`
 One "host" tab registers a `scope: 'page'` agent that owns the LLM + tools. Any other tab creates an `AgentProxy` and gets the same chat interface routed over the static SharedWorker. Open two tabs and chat from either.
@@ -124,4 +124,4 @@ One "host" tab registers a `scope: 'page'` agent that owns the LLM + tools. Any 
 Three Module Federation apps. Two remotes (`ollama-agent`, `scribe-agent`) expose React components that also spin up MCP servers over `NirnamMCPTransport`. The host connects MCP clients to both and orchestrates a document Q&A workflow.
 
 ### `static-worker/`
-Raw SharedWorker setup without any MFE framework — useful if you want to understand Layer 3 in isolation.
+Raw `hub: 'shared'` setup without any MFE framework — useful if you want to understand cross-tab routing in isolation.

@@ -29,7 +29,7 @@ export interface NirnamRsbuildPlugin {
 }
 
 /**
- * Rsbuild plugin that enables Layer 3 (static URL SharedWorker) for Nirnam.
+ * Rsbuild plugin that serves the Nirnam worker from a static URL.
  *
  * - Copies the Nirnam worker script to `<root>/public/<workerPath>` before
  *   every build and every dev-server start.

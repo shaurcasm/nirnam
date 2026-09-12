@@ -8,10 +8,11 @@ declare const __NIRNAM_STATIC_WORKER_URL__: string | undefined;
 
 const WORKER_MODE =
   typeof __NIRNAM_STATIC_WORKER_URL__ === 'string'
-    ? { label: 'Layer 3 — Static URL SharedWorker', url: __NIRNAM_STATIC_WORKER_URL__, color: '#16a34a' }
-    : { label: 'Layer 2 — Blob URL SharedWorker', url: 'blob (plugin not active)', color: '#b45309' };
+    ? { label: 'Shared hub — static URL SharedWorker', url: __NIRNAM_STATIC_WORKER_URL__, color: '#16a34a' }
+    : { label: 'Shared hub — Blob URL SharedWorker (page-scoped)', url: 'blob (plugin not active)', color: '#b45309' };
 
-const bus = createBus();
+// Cross-tab routing is opt-in: the default hub is a dedicated worker.
+const bus = createBus({ hub: 'shared' });
 
 interface Message {
   id: number;
@@ -122,7 +123,7 @@ export default function App() {
 
       <p style={{ fontSize: 12, color: '#9ca3af', marginTop: 24, lineHeight: 1.6 }}>
         Open this page in multiple tabs and click the buttons.
-        With <strong>Layer 3</strong>, all tabs share the same SharedWorker instance
+        With the <strong>shared hub</strong> on a static URL, all tabs share the same SharedWorker instance
         — messages route through a single process, enabling true cross-tab state sharing
         without BroadcastChannel.
       </p>

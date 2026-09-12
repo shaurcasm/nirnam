@@ -1,6 +1,6 @@
 # @palinc/nirnam
 
-A three-layer hybrid message bus for micro-frontend communication and browser-native AI agents — built on SharedWorker and BroadcastChannel with zero runtime dependencies.
+A message bus for micro-frontend communication and browser-native AI agents — routed through a Web Worker, fanned out across tabs with BroadcastChannel, zero runtime dependencies.
 
 ## Install
 
@@ -263,7 +263,7 @@ const agent = createAgent({
 
 ## MCP Transport
 
-Wire any MCP-compatible server or client over the Nirnam bus. No HTTP, no WebSocket — message routing is handled by the SharedWorker.
+Wire any MCP-compatible server or client over the Nirnam bus. No HTTP, no WebSocket — message routing is handled by the hub worker.
 
 ```ts
 import { NirnamMCPTransport } from '@palinc/nirnam/mcp';
@@ -285,9 +285,41 @@ const result = await client.callTool({ name: 'my_tool', arguments: {} });
 
 ---
 
-## Cross-tab communication
+## Where the hub runs
 
-By default the bus connects every script **on the same page** via a Blob-URL SharedWorker. To route messages **across tabs** you need a static worker URL — add one of the build plugins.
+Every bus on a page connects to a **hub** — the subscriber registry and router. `createBus({ hub })` chooses where it lives:
+
+| `hub` | Runs in | Reach | When to pick it |
+|---|---|---|---|
+| `'dedicated'` (default) | a Worker owned by this page | every script on this page | always, unless you need one of the other two — every browser has it, including Chrome on Android, and it terminates with the page |
+| `'shared'` | a SharedWorker | every tab of the origin | cross-tab request-reply and `scope: 'page'` agents; falls back to `'dedicated'` with a warning where SharedWorker is missing |
+| `'inline'` | this thread | every bus in this module | tests, SSR, and anywhere workers are unavailable — zero hops, nothing to start |
+
+`publish()` reaches other tabs through BroadcastChannel whatever the hub is; only request-reply and agent discovery are scoped to the hub.
+
+```ts
+const bus = createBus();                    // dedicated worker
+const bus = createBus({ hub: 'shared' });   // cross-tab
+const bus = createBus({ hub: 'inline' });   // tests
+bus.hub;                                    // what you actually got, after fallback
+bus.close();                                // leaves the hub; the last close terminates a dedicated worker
+```
+
+### Letting a worker join the bus
+
+A dedicated worker of your own — animation, audio analysis — cannot create a bus, but it can be handed a port to the hub. From then on its traffic never crosses the main thread:
+
+```ts
+const { port1, port2 } = new MessageChannel();
+bus.adoptPort(port1);                                       // the hub now routes to and from port1
+myWorker.postMessage({ type: 'nirnam:connect' }, [port2]);  // the worker speaks the wire protocol over port2
+```
+
+A worker-side client for that port ships as `@palinc/nirnam/worker`.
+
+## Static worker URL
+
+By default the hub worker loads from a Blob URL. Two reasons to serve it as a static file instead: a strict `worker-src` CSP that forbids `blob:`, and the `'shared'` hub, which can only be shared across tabs when every tab loads the same URL. The build plugins do that:
 
 ### Vite
 
@@ -322,19 +354,20 @@ module.exports = {
 };
 ```
 
-Each plugin copies the SharedWorker script into your public directory and injects `__NIRNAM_STATIC_WORKER_URL__` at build time. `createBus()` picks it up automatically — no code changes needed.
+Each plugin copies the worker script into your public directory and injects `__NIRNAM_STATIC_WORKER_URL__` at build time. `createBus()` picks it up automatically — no code changes needed.
 
 ### Cross-tab agents
 
-Run one LLM agent in a host tab and let any other tab proxy into it over the static worker:
+Run one LLM agent in a host tab and let any other tab proxy into it. This needs the `'shared'` hub on a static URL:
 
 ```ts
 // host tab
 import { createAgent } from '@palinc/nirnam/agents';
 
+const bus = createBus({ hub: 'shared' });
 const agent = createAgent({
   agentId: 'assistant',
-  scope: 'page',   // registers in the shared worker registry
+  scope: 'page',   // registers in the shared hub's registry
   llm: { url: '...', model: '...' },
   bus,
 });
@@ -378,7 +411,7 @@ import type { NirnamMCPTransport } from '@palinc/nirnam/mcp';
 
 ## Browser support
 
-Requires **SharedWorker** and **BroadcastChannel** support (all modern browsers; no IE11). The agent framework additionally uses `fetch` for LLM calls and optionally the **File System Access API** for folder tools.
+Requires **Web Workers**, **MessageChannel** and **BroadcastChannel** (all modern browsers, Chrome on Android included; no IE11). The `'shared'` hub additionally needs **SharedWorker** — absent on Chrome for Android — and falls back to `'dedicated'` without it. The agent framework additionally uses `fetch` for LLM calls and optionally the **File System Access API** for folder tools.
 
 ---
 

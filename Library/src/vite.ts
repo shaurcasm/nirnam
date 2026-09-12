@@ -21,7 +21,7 @@ export interface NirnamVitePlugin {
 }
 
 /**
- * Vite plugin that enables Layer 3 (static URL SharedWorker) for Nirnam.
+ * Vite plugin that serves the Nirnam worker from a static URL.
  *
  * - Copies the Nirnam worker script to `<publicDir>/<workerPath>` so it is
  *   served as a stable static file (e.g. `/nirnam-worker.js`).

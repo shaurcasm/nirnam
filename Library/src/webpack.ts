@@ -37,7 +37,7 @@ interface MinimalCompilation {
 }
 
 /**
- * Webpack 5 plugin that enables Layer 3 (static URL SharedWorker) for Nirnam.
+ * Webpack 5 plugin that serves the Nirnam worker from a static URL.
  *
  * - Emits the Nirnam worker script as `<workerPath>` in the webpack output so
  *   it is served as a stable static file.

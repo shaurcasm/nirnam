@@ -1,12 +1,14 @@
 /**
- * The animation worker. Two surfaces: a bouncing dot that follows the pointer
- * and swaps colour with the "route", and a scattered field of drifting
- * particles. It joins the bus so the page can steer it with topics instead
- * of prop drilling, and it publishes its own frame stats back.
+ * The animation worker. One canvas, two layers: a scattered field of
+ * drifting particles underneath, a bouncing dot that follows the pointer and
+ * swaps colour with the "route" on top. One canvas rather than two because
+ * the compositor pays per canvas, every frame, however little was drawn.
+ * The worker joins the bus so the page can steer it with topics instead of
+ * prop drilling.
  */
 
 import { connectWorkerBus } from '@palinc/nirnam/worker';
-import { createOrchestrator } from '@palinc/nirnam/canvas';
+import { createOrchestrator, layers } from '@palinc/nirnam/canvas';
 import type { Surface, SurfaceSize, FrameInput } from '@palinc/nirnam/canvas';
 
 interface DotState {
@@ -60,8 +62,9 @@ class DotSurface implements Surface<DotState> {
     if (this.x < r || this.x > width - r) { this.vx *= -1; this.x = Math.max(r, Math.min(width - r, this.x)); }
     if (this.y < r || this.y > height - r) { this.vy *= -1; this.y = Math.max(r, Math.min(height - r, this.y)); }
 
+    // The composite cleared the canvas; a layer only draws.
     const ctx = this.ctx;
-    ctx.clearRect(0, 0, width, height);
+    ctx.setTransform(input.size.dpr, 0, 0, input.size.dpr, 0, 0);
     ctx.beginPath();
     ctx.arc(this.x, this.y, r, 0, Math.PI * 2);
     ctx.fillStyle = this.colour;
@@ -94,7 +97,7 @@ class FieldSurface implements Surface {
   frame(dt: number, input: FrameInput) {
     const { width, height } = input.size;
     const ctx = this.ctx;
-    ctx.clearRect(0, 0, width, height);
+    ctx.setTransform(input.size.dpr, 0, 0, input.size.dpr, 0, 0);
     ctx.fillStyle = 'rgba(148,163,184,0.5)';
     for (const p of this.points) {
       if (input.pointer) {
@@ -117,14 +120,13 @@ class FieldSurface implements Surface {
 
 const orchestrator = createOrchestrator({
   surfaces: {
-    dot: () => new DotSurface(),
-    field: () => new FieldSurface(),
+    background: layers({ field: () => new FieldSurface(), dot: () => new DotSurface() }),
   },
   statsIntervalMs: 1000,
 });
 
-// The bus: route changes arrive as a topic, stats go back out as one.
+// The bus: route changes arrive as a topic and are routed to the dot layer.
 connectWorkerBus().then(bus => {
-  bus.subscribe<DotState['route']>('example:route', route => orchestrator.setState('dot', { route }));
+  bus.subscribe<DotState['route']>('example:route', route => orchestrator.setState('background', { dot: { route } }));
   bus.handle('example:ping', () => 'pong from the worker');
 });

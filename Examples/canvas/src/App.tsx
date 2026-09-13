@@ -1,5 +1,5 @@
 /**
- * Canvas example: two OffscreenCanvas surfaces on a dedicated worker,
+ * Canvas example: one OffscreenCanvas with two layers on a dedicated worker,
  * steered over the bus, surviving StrictMode and a "route" change.
  *
  * Things to try:
@@ -8,7 +8,9 @@
  *   the canvas element itself never remounts.
  * - Flip the tier: `ambient` drops to 30fps and ignores the pointer,
  *   `off` terminates the worker; back to `full` starts a fresh one.
- * - Watch the stats line: p95 per surface, once a second.
+ * - Hide the tab: the frame counter stops — worker rAF would not stop by
+ *   itself, the host tells the orchestrator the page is hidden.
+ * - Watch the stats line: frames and p95, once a second.
  */
 
 import { useEffect, useMemo, useState } from 'react';
@@ -19,14 +21,11 @@ import type { MotionTier, SurfaceStats, MotionPreference } from '@palinc/nirnam/
 
 const bus = createBus();
 
-function DotCanvas({ route }: { route: 'login' | 'home' }) {
-  const state = useMemo(() => ({ route }), [route]);
-  const ref = useSurface('dot', { state });
-  return <canvas ref={ref} aria-hidden style={{ position: 'fixed', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }} />;
-}
-
-function FieldCanvas() {
-  const ref = useSurface('field');
+function BackgroundCanvas({ route }: { route: 'login' | 'home' }) {
+  // State is routed to the layer it names. A full-viewport background does
+  // not need more than 1x: every pixel of it is uploaded and blended per frame.
+  const state = useMemo(() => ({ dot: { route } }), [route]);
+  const ref = useSurface('background', { state, maxDpr: 1 });
   return <canvas ref={ref} aria-hidden style={{ position: 'fixed', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }} />;
 }
 
@@ -35,12 +34,7 @@ function Background({ route }: { route: 'login' | 'home' }) {
   if (tier === 'off') {
     return <div style={{ position: 'fixed', inset: 0, background: 'radial-gradient(circle at 50% 50%, #1e293b, #0f172a)' }} />;
   }
-  return (
-    <>
-      <FieldCanvas />
-      <DotCanvas route={route} />
-    </>
-  );
+  return <BackgroundCanvas route={route} />;
 }
 
 function LoginPage() {

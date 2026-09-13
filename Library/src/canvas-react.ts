@@ -112,6 +112,8 @@ export function useMotionTier(): MotionTier {
 export interface UseSurfaceOptions<State> {
   /** Sent on attach and whenever it changes (by reference). */
   state?: State;
+  /** Cap this surface's device pixel ratio; 1 is plenty for a full-viewport background. */
+  maxDpr?: number;
 }
 
 /**
@@ -126,17 +128,18 @@ export function useSurface<State = unknown>(surfaceId: string, options: UseSurfa
   const stateRef = React.useRef(options.state);
   const sentRef = React.useRef<State | undefined>(undefined);
   stateRef.current = options.state;
+  const { maxDpr } = options;
 
   React.useEffect(() => {
     if (!controller || !canvas) return;
-    const handle = controller.attach(surfaceId, canvas, stateRef.current);
+    const handle = controller.attach(surfaceId, canvas, stateRef.current, { maxDpr });
     sentRef.current = stateRef.current;
     handleRef.current = handle;
     return () => {
       handle.detach();
       handleRef.current = null;
     };
-  }, [controller, canvas, surfaceId]);
+  }, [controller, canvas, surfaceId, maxDpr]);
 
   const { state } = options;
   React.useEffect(() => {

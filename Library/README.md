@@ -362,6 +362,8 @@ function Background() {
 
 Three tiers, probed at runtime: `full` (60 fps, pointer-reactive), `ambient` (30 fps, lower DPR, no pointer — low-end or touch devices) and `off` (no worker is even started; `useMotionTier()` lets a component render a static fallback). `prefers-reduced-motion` always wins. The orchestrator reports per-surface frame timing once a second (`onStats`) and steps itself down from `full` to `ambient` after sustained overrun (`onTierChange`). `transferControlToOffscreen()` is one-shot per element, and the host survives React StrictMode's double mount. Without React, `CanvasHostController` is the same thing as a class.
 
+What it costs, and how to keep it small: the compositor pays **per canvas per frame**, however little was drawn, so put several things on one canvas with `layers({ sky: …, tree: …, leaves: … })` rather than one canvas each, and cap a full-viewport background with `useSurface(id, { maxDpr: 1 })` — nobody sees the second pixel. The loop stops when the page is hidden (worker `requestAnimationFrame` would not stop by itself in a background tab), when a surface scrolls out of view, and when nothing is attached.
+
 Example: `Examples/canvas/`.
 
 ## Static worker URL

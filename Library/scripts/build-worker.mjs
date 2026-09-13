@@ -68,7 +68,9 @@ if (isMain) {
     } catch {
       // Missing counts as stale.
     }
-    if (current !== rendered) {
+    // Git may check the file out with CRLF; only the content matters.
+    const normalise = (text) => text.replace(/\r\n/g, '\n');
+    if (normalise(current) !== normalise(rendered)) {
       console.error('src/worker-source.ts is stale — run `npm run build:worker`.');
       process.exit(1);
     }

@@ -453,6 +453,17 @@ StrictMode start plus an off/on cycle). `adoptPort` / `adoptWorker` now
 return an `Adoption` whose `release()` removes the port by id
 (`disconnect-port`), and `CanvasHost` releases before it terminates.
 
+Found by running the example with the tab in the background: worker
+`requestAnimationFrame` is **not** throttled for hidden pages, so the loop
+drew two full-viewport canvases at 60 fps for as long as the tab sat behind
+another — a laptop's fans, in practice. The host now forwards
+`visibilitychange` (`canvas:page-hidden`) and the orchestrator stops on it.
+Alongside, `layers()` puts several surfaces on one canvas (the compositor
+pays per canvas, not per pixel drawn) and `maxDpr` caps a surface below the
+tier's cap, so a full-viewport background can run at 1x. The example went
+from two canvases at device DPR to one at 1x — roughly a third of the
+compositing work — and to zero while hidden. (v2.1.0)
+
 **Tests:** `tests/canvas-orchestrator.test.ts` (fake clock: attach/detach,
 one rAF for N surfaces, dt cap, frame-rate hold per tier, pointer withheld
 under ambient, DPR cap, stats, step-down and its reset),

@@ -31,6 +31,8 @@ export interface HostDeps {
   IntersectionObserver?: typeof IntersectionObserver;
   /** Where pointer events are read from; `window` so the canvas can stay `pointer-events: none`. */
   pointerTarget?: EventTarget;
+  /** Where `visibilitychange` is read from; `document`. */
+  visibilityTarget?: Pick<Document, 'visibilityState' | 'addEventListener' | 'removeEventListener'>;
   devicePixelRatio?(): number;
   /** Call back whenever the DPR changes; returns an unsubscribe. */
   watchDevicePixelRatio?(callback: () => void): () => void;
@@ -50,6 +52,15 @@ export interface SurfaceHandle {
   detach(): void;
 }
 
+export interface AttachOptions {
+  /**
+   * Cap the device pixel ratio this surface is drawn at, below whatever the
+   * tier allows. A full-viewport background rarely needs more than 1: the
+   * compositor uploads and blends every pixel of it every frame.
+   */
+  maxDpr?: number;
+}
+
 interface Attachment {
   surfaceId: string;
   canvas: HTMLCanvasElement;
@@ -57,6 +68,7 @@ interface Attachment {
   rect: { left: number; top: number; width: number; height: number };
   /** Content box in CSS pixels — what the surface draws into. */
   box: { width: number; height: number };
+  maxDpr: number;
   resize: ResizeObserver | null;
   visibility: IntersectionObserver | null;
   detachPending: boolean;
@@ -75,6 +87,7 @@ const POINTER_EVENTS = ['pointermove', 'pointerdown', 'pointerup', 'pointercance
 function browserDeps(): Required<Omit<HostDeps, 'post' | 'onMessage' | 'ResizeObserver' | 'IntersectionObserver'>> {
   const g = globalThis as unknown as {
     window?: Window;
+    document?: Document;
     devicePixelRatio?: number;
     matchMedia?: (q: string) => MediaQueryList;
     requestAnimationFrame?: (cb: () => void) => number;
@@ -83,6 +96,7 @@ function browserDeps(): Required<Omit<HostDeps, 'post' | 'onMessage' | 'ResizeOb
   return {
     transfer: (canvas) => canvas.transferControlToOffscreen(),
     pointerTarget: g.window as unknown as EventTarget,
+    visibilityTarget: g.document ?? { visibilityState: 'visible', addEventListener: () => {}, removeEventListener: () => {} },
     devicePixelRatio: () => g.devicePixelRatio ?? 1,
     watchDevicePixelRatio: (callback) => {
       // A media query matching the *current* ratio stops matching when it changes;
@@ -134,8 +148,15 @@ export class CanvasHostController {
     this.unsubscribeWorker = this.deps.onMessage(this.onWorkerMessage);
     this.unwatchDpr = this.deps.watchDevicePixelRatio(this.onDprChange);
     this.deps.post({ type: 'canvas:tier', tier: this._tier });
+    this.deps.visibilityTarget.addEventListener('visibilitychange', this.onVisibilityChange);
+    if (this.deps.visibilityTarget.visibilityState === 'hidden') this.onVisibilityChange();
     this.syncPointerListening();
   }
+
+  // Worker rAF is not throttled in a background tab; the orchestrator stops on this instead.
+  private readonly onVisibilityChange = () => {
+    this.deps.post({ type: 'canvas:page-hidden', hidden: this.deps.visibilityTarget.visibilityState === 'hidden' });
+  };
 
   get tier(): MotionTier {
     return this._tier;
@@ -143,13 +164,13 @@ export class CanvasHostController {
 
   // ---- surfaces --------------------------------------------------------------
 
-  attach(surfaceId: string, canvas: HTMLCanvasElement, state?: unknown): SurfaceHandle {
+  attach(surfaceId: string, canvas: HTMLCanvasElement, state?: unknown, options: AttachOptions = {}): SurfaceHandle {
     let attachment = this.attachments.get(canvas);
     if (attachment?.detachPending) {
       // Same element back within the deferral window — a StrictMode remount.
       attachment.detachPending = false;
     } else {
-      attachment = this.create(surfaceId, canvas);
+      attachment = this.create(surfaceId, canvas, options);
     }
     const current = attachment;
     if (state !== undefined) this.deps.post({ type: 'canvas:state', surfaceId, state });
@@ -162,13 +183,14 @@ export class CanvasHostController {
     };
   }
 
-  private create(surfaceId: string, canvas: HTMLCanvasElement): Attachment {
+  private create(surfaceId: string, canvas: HTMLCanvasElement, options: AttachOptions): Attachment {
     const rect = canvas.getBoundingClientRect();
     const attachment: Attachment = {
       surfaceId,
       canvas,
       rect,
       box: { width: rect.width, height: rect.height },
+      maxDpr: options.maxDpr ?? Infinity,
       resize: null,
       visibility: null,
       detachPending: false,
@@ -198,7 +220,11 @@ export class CanvasHostController {
   }
 
   private sizeOf(attachment: Attachment) {
-    return { width: attachment.box.width, height: attachment.box.height, dpr: this.deps.devicePixelRatio() };
+    return {
+      width: attachment.box.width,
+      height: attachment.box.height,
+      dpr: Math.min(this.deps.devicePixelRatio(), attachment.maxDpr),
+    };
   }
 
   private scheduleDetach(attachment: Attachment) {
@@ -310,6 +336,7 @@ export class CanvasHostController {
     this.syncPointerListening();
     this.unsubscribeWorker();
     this.unwatchDpr();
+    this.deps.visibilityTarget.removeEventListener('visibilitychange', this.onVisibilityChange);
     this.statsListeners.clear();
     this.tierListeners.clear();
   }

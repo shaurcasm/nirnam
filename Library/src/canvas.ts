@@ -21,7 +21,10 @@ export { createOrchestrator } from './canvas/orchestrator';
 export type { Orchestrator, OrchestratorOptions, OrchestratorScope, OrchestratorClock } from './canvas/orchestrator';
 
 export { CanvasHostController } from './canvas/host';
-export type { HostDeps, HostOptions, SurfaceHandle } from './canvas/host';
+export type { HostDeps, HostOptions, SurfaceHandle, AttachOptions } from './canvas/host';
+
+export { layers } from './canvas/layers';
+export type { LayersOptions } from './canvas/layers';
 
 export { resolveMotionTier, probeMotionCapabilities } from './canvas/tier';
 export type { MotionCapabilities, MotionPreference, ProbeEnvironment } from './canvas/tier';

@@ -1,3 +1,17 @@
+# [2.1.0](https://github.com/shaurcasm/nirnam/compare/v2.0.0...v2.1.0) (2026-09-13)
+
+
+### Bug Fixes
+
+* **build:** worker staleness check ignores line endings ([0b6a7b5](https://github.com/shaurcasm/nirnam/commit/0b6a7b5856ab392c746c53786f6e88756029dd72))
+* **canvas:** stop the frame loop while the page is hidden ([a5b9787](https://github.com/shaurcasm/nirnam/commit/a5b978712c467057341344bbda446ff139d4a929))
+* typesVersions so node10 resolution finds the subpath types ([7dd5dcf](https://github.com/shaurcasm/nirnam/commit/7dd5dcfbe098ee8190cd534545eab4bed66f94d8))
+
+
+### Features
+
+* **canvas:** layers on one canvas and a per-surface DPR cap ([62e2d8a](https://github.com/shaurcasm/nirnam/commit/62e2d8acdd50ddabd155f5ec7f73f8829ff1cd38))
+
 # [2.0.0](https://github.com/shaurcasm/nirnam/compare/v1.4.1...v2.0.0) (2026-09-12)
 
 

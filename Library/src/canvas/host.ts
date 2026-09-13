@@ -52,6 +52,15 @@ export interface SurfaceHandle {
   detach(): void;
 }
 
+export interface AttachOptions {
+  /**
+   * Cap the device pixel ratio this surface is drawn at, below whatever the
+   * tier allows. A full-viewport background rarely needs more than 1: the
+   * compositor uploads and blends every pixel of it every frame.
+   */
+  maxDpr?: number;
+}
+
 interface Attachment {
   surfaceId: string;
   canvas: HTMLCanvasElement;
@@ -59,6 +68,7 @@ interface Attachment {
   rect: { left: number; top: number; width: number; height: number };
   /** Content box in CSS pixels — what the surface draws into. */
   box: { width: number; height: number };
+  maxDpr: number;
   resize: ResizeObserver | null;
   visibility: IntersectionObserver | null;
   detachPending: boolean;
@@ -154,13 +164,13 @@ export class CanvasHostController {
 
   // ---- surfaces --------------------------------------------------------------
 
-  attach(surfaceId: string, canvas: HTMLCanvasElement, state?: unknown): SurfaceHandle {
+  attach(surfaceId: string, canvas: HTMLCanvasElement, state?: unknown, options: AttachOptions = {}): SurfaceHandle {
     let attachment = this.attachments.get(canvas);
     if (attachment?.detachPending) {
       // Same element back within the deferral window — a StrictMode remount.
       attachment.detachPending = false;
     } else {
-      attachment = this.create(surfaceId, canvas);
+      attachment = this.create(surfaceId, canvas, options);
     }
     const current = attachment;
     if (state !== undefined) this.deps.post({ type: 'canvas:state', surfaceId, state });
@@ -173,13 +183,14 @@ export class CanvasHostController {
     };
   }
 
-  private create(surfaceId: string, canvas: HTMLCanvasElement): Attachment {
+  private create(surfaceId: string, canvas: HTMLCanvasElement, options: AttachOptions): Attachment {
     const rect = canvas.getBoundingClientRect();
     const attachment: Attachment = {
       surfaceId,
       canvas,
       rect,
       box: { width: rect.width, height: rect.height },
+      maxDpr: options.maxDpr ?? Infinity,
       resize: null,
       visibility: null,
       detachPending: false,
@@ -209,7 +220,11 @@ export class CanvasHostController {
   }
 
   private sizeOf(attachment: Attachment) {
-    return { width: attachment.box.width, height: attachment.box.height, dpr: this.deps.devicePixelRatio() };
+    return {
+      width: attachment.box.width,
+      height: attachment.box.height,
+      dpr: Math.min(this.deps.devicePixelRatio(), attachment.maxDpr),
+    };
   }
 
   private scheduleDetach(attachment: Attachment) {

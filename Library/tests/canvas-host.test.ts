@@ -190,6 +190,24 @@ describe('attach', () => {
     expect(second).not.toBe(first);
   });
 
+  it('caps the DPR per surface when asked — a full-viewport background does not need 2x', () => {
+    const canvas = fakeCanvas();
+    host.attach('bg', canvas as unknown as HTMLCanvasElement, undefined, { maxDpr: 1 });
+    expect(messagesOfType('canvas:attach')[0].size.dpr).toBe(1);
+
+    FakeResizeObserver.instances[0].fire(canvas, 640, 320);
+    expect(messagesOfType('canvas:resize')[0].size.dpr).toBe(1);
+
+    dpr = 3;
+    dprListeners.forEach(l => l());
+    expect(messagesOfType('canvas:resize')[1].size.dpr).toBe(1);
+  });
+
+  it('a per-surface cap above the device ratio changes nothing', () => {
+    host.attach('bg', fakeCanvas() as unknown as HTMLCanvasElement, undefined, { maxDpr: 4 });
+    expect(messagesOfType('canvas:attach')[0].size.dpr).toBe(2);
+  });
+
   it('works without observers, sampling the size once', () => {
     host.dispose();
     host = new CanvasHostController({ ...deps(), ResizeObserver: undefined, IntersectionObserver: undefined }, { tier: 'full' });

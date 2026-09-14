@@ -168,6 +168,18 @@ describe('attach', () => {
     expect(messagesOfType('canvas:state').map(m => m.state)).toEqual([{ anchor: 'login' }, { anchor: 'home' }]);
   });
 
+  it('does not send a state equal by value to the last one sent — a re-render is not a change', () => {
+    const handle = host.attach('tree', fakeCanvas() as unknown as HTMLCanvasElement, { anchor: 'login', palette: { bark: '#1' } });
+    handle.setState({ anchor: 'login', palette: { bark: '#1' } });
+    handle.setState({ anchor: 'login', palette: { bark: '#2' } });
+    handle.setState({ anchor: 'login', palette: { bark: '#2' } });
+
+    expect(messagesOfType('canvas:state').map(m => m.state)).toEqual([
+      { anchor: 'login', palette: { bark: '#1' } },
+      { anchor: 'login', palette: { bark: '#2' } },
+    ]);
+  });
+
   it('observes size and visibility of the canvas', () => {
     const canvas = fakeCanvas();
     host.attach('tree', canvas as unknown as HTMLCanvasElement);

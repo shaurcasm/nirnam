@@ -19,6 +19,7 @@
  */
 
 import type { HostMessage, MotionTier, OrchestratorMessage, PointerSample, SurfaceStats } from './types';
+import { sameValue } from './sameValue';
 
 /** Everything the controller needs from the page, injectable for tests. */
 export interface HostDeps {
@@ -64,6 +65,8 @@ export interface AttachOptions {
 interface Attachment {
   surfaceId: string;
   canvas: HTMLCanvasElement;
+  /** The last state sent, so an equal one is not sent again. */
+  lastState: { value: unknown } | null;
   /** Position on the page, for pointer offsets. */
   rect: { left: number; top: number; width: number; height: number };
   /** Content box in CSS pixels — what the surface draws into. */
@@ -173,14 +176,25 @@ export class CanvasHostController {
       attachment = this.create(surfaceId, canvas, options);
     }
     const current = attachment;
-    if (state !== undefined) this.deps.post({ type: 'canvas:state', surfaceId, state });
+    if (state !== undefined) this.sendState(current, state);
 
     return {
       setState: (next) => {
-        if (!current.detached) this.deps.post({ type: 'canvas:state', surfaceId, state: next });
+        if (!current.detached) this.sendState(current, next);
       },
       detach: () => this.scheduleDetach(current),
     };
+  }
+
+  /**
+   * State goes over as a structured clone, so the orchestrator cannot tell a
+   * repeat from a change; the comparison happens here, before the message.
+   * A React host re-renders for many reasons that leave the state as it was.
+   */
+  private sendState(attachment: Attachment, state: unknown): void {
+    if (attachment.lastState && sameValue(attachment.lastState.value, state)) return;
+    attachment.lastState = { value: state };
+    this.deps.post({ type: 'canvas:state', surfaceId: attachment.surfaceId, state });
   }
 
   private create(surfaceId: string, canvas: HTMLCanvasElement, options: AttachOptions): Attachment {
@@ -188,6 +202,7 @@ export class CanvasHostController {
     const attachment: Attachment = {
       surfaceId,
       canvas,
+      lastState: null,
       rect,
       box: { width: rect.width, height: rect.height },
       maxDpr: options.maxDpr ?? Infinity,

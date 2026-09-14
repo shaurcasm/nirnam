@@ -15,10 +15,18 @@
  *   });
  *   // host side: setState('background', { tree: { anchor: 'home' } })
  *
+ * A layer hears its slice of the state only when the slice changed by
+ * value. State arrives as a structured clone, so every message is a new
+ * object and a layer could never tell a repeat from a change on its own —
+ * and a layer that rebuilds something expensive on "new" state would do so
+ * for every message about some other layer. A trigger that must fire on
+ * every send therefore carries something that changes, such as a counter.
+ *
  * Layers must not clear the canvas themselves.
  */
 
 import type { Surface, SurfaceFactory, SurfaceSize, FrameInput } from './types';
+import { sameValue } from './sameValue';
 
 export interface LayersOptions {
   /** Clear the whole canvas before the first layer draws. Default `true`. */
@@ -58,6 +66,8 @@ class Composite implements Surface<Record<string, unknown>> {
   private readonly layers: Array<{ name: string | null; surface: Surface }>;
   private ctx: OffscreenCanvasRenderingContext2D | null = null;
   private size: SurfaceSize | null = null;
+  /** The last slice each named layer was given, to hold back a repeat. */
+  private readonly given = new Map<string, unknown>();
 
   constructor(named: Array<[string | null, SurfaceFactory]>, private readonly clear: boolean) {
     this.layers = named.map(([name, factory]) => ({ name, surface: factory() }));
@@ -85,7 +95,11 @@ class Composite implements Surface<Record<string, unknown>> {
 
   onState(state: Record<string, unknown>): void {
     this.layers.forEach(l => {
-      if (l.name !== null && l.name in state) l.surface.onState?.(state[l.name]);
+      if (l.name === null || !(l.name in state)) return;
+      const slice = state[l.name];
+      if (this.given.has(l.name) && sameValue(this.given.get(l.name), slice)) return;
+      this.given.set(l.name, slice);
+      l.surface.onState?.(slice);
     });
   }
 

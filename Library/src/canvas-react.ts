@@ -22,6 +22,7 @@ import * as React from 'react';
 import { CanvasHostController } from './canvas/host';
 import type { SurfaceHandle } from './canvas/host';
 import type { MotionTier, OrchestratorMessage, SurfaceStats } from './canvas/types';
+import type { WorkerLike } from './canvas/inline';
 
 interface HostContextValue {
   controller: CanvasHostController | null;
@@ -31,11 +32,11 @@ interface HostContextValue {
 const HostContext = React.createContext<HostContextValue>({ controller: null, tier: 'off' });
 
 export interface CanvasHostProps {
-  /** Creates the worker running `createOrchestrator`. Called once per non-`off` tier session. */
-  worker: () => Worker;
+  /** Creates the worker running `createOrchestrator` — a real `Worker`, or `inlineWorker()`. Called once per non-`off` tier session. */
+  worker: () => WorkerLike;
   tier: MotionTier;
   /** When given, the worker joins the bus via `adoptWorker` before anything else. Structural, so any bus build matches. */
-  bus?: { adoptWorker(worker: Worker): { release(): void } };
+  bus?: { adoptWorker(worker: WorkerLike): { release(): void } };
   onStats?: (stats: SurfaceStats[], tier: MotionTier) => void;
   /** The orchestrator stepped itself down; the consumer usually mirrors this into its own tier state. */
   onTierChange?: (tier: MotionTier, reason?: 'over-budget') => void;
@@ -152,3 +153,4 @@ export function useSurface<State = unknown>(surfaceId: string, options: UseSurfa
 }
 
 export type { MotionTier, SurfaceStats, SurfaceEvent } from './canvas/types';
+export type { WorkerLike } from './canvas/inline';

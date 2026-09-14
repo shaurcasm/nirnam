@@ -474,6 +474,51 @@ pixels, tier relay), `tests/canvas-tier.test.ts`, and
 injectable dependencies. The React binding is exercised by the example, not
 unit-tested (Jest runs in Node here).
 
+## 11. `inlineWorker()` — the canvas runtime on the calling thread
+
+**Status:** complete (2026-09-15; ships with v2.2.0). `Examples/canvas` has a
+*worker / main* toggle; `Examples/benchmark` (§12) is built on it.
+
+**Purpose:** A `Worker`-shaped object (`postMessage` with transfers,
+`addEventListener('message')`, `terminate()`, accepted by `bus.adoptWorker`)
+that runs `createOrchestrator` on the thread that made it, over a
+`MessageChannel`. The host cannot tell the difference: messages still arrive
+as tasks, the `OffscreenCanvas` is still transferred, only never across a
+thread. Three reasons it exists:
+
+1. **Measuring.** The control arm of "with the worker / without": identical
+   surfaces, identical runtime, the other thread, nothing else different.
+2. **Falling back.** OffscreenCanvas without a startable worker (strict CSP,
+   a build with no worker bundle) still animates.
+3. **Testing.** Host and orchestrator together in one Node process.
+
+```ts
+import { inlineWorker, createOrchestrator } from '@palinc/nirnam/canvas';
+const worker = inlineWorker(scope => createOrchestrator({ surfaces, scope }));
+<CanvasHost worker={() => worker} tier={tier} bus={bus} />
+```
+
+The setup callback may hand its `scope` to `connectWorkerBus({ scope })`, so
+a worker entry file and the inline arm share one setup function.
+
+**Files:** `src/canvas/inline.ts`; `CanvasHostProps.worker` and
+`NirnamBus.adoptWorker` widened to the `WorkerLike` shape. Tests:
+`tests/canvas-inline.test.ts` (attach/state/resize/detach through the channel,
+stats relayed to listeners, terminate disposes and seals both ends, the
+`nirnam:connect` port is forwarded so the inline worker joins the bus).
+
+## 12. `Examples/benchmark` — with Nirnam and without
+
+**Status:** in progress (2026-09-15).
+
+**Purpose:** One page that runs the three use cases — micro-frontend
+transport, MCP, canvas — with Nirnam and with the plain alternative, same
+workload, and prints the numbers next to a development-effort comparison read
+from the arms' own source. Includes the arm where Nirnam is slower (pub/sub
+between two main-thread MFEs against an in-memory emitter) on purpose: the
+main-thread win is wherever work leaves the main thread; elsewhere the win
+is reach and effort, and the page says which is which.
+
 ---
 
 ## Luxury List

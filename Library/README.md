@@ -366,7 +366,9 @@ What it costs, and how to keep it small: the compositor pays **per canvas per fr
 
 State is compared **by value** before it moves: the host does not send a state equal to the last one it sent, and `layers()` gives a layer its slice only when that slice changed — a surface cannot do this itself, since everything it receives is a structured clone and so a new object every time. A trigger that must fire on every send carries something that changes, such as a counter. Frame timing misses one-off costs — the frame that repaints a cache is one long frame in sixty, and the GPU raster it causes is not on the worker at all — so a surface names them: `input.report('rebuild', ms)` inside `frame()`, and they come back totalled per name in `SurfaceStats.events`.
 
-Example: `Examples/canvas/`.
+The same runtime on the calling thread, behind a Worker's shape: `inlineWorker(scope => createOrchestrator({ surfaces, scope }))` in place of `new Worker(...)`. Messages still arrive as tasks and the canvas is still transferred, only never across a thread. It is the control arm for measuring what the worker buys (same surfaces, same runtime, other thread — nothing else different), a fallback where a worker cannot start, and a way to run host and orchestrator together in one test. The setup callback may hand its `scope` to `connectWorkerBus({ scope })`, so the inline arm joins the bus exactly as a worker file would.
+
+Example: `Examples/canvas/` — with a *worker / main thread* toggle, so the difference is a click away.
 
 ## Static worker URL
 

@@ -15,6 +15,10 @@
  *
  * The runtime is here; surfaces are yours. Pair it with
  * `@palinc/nirnam/worker` for the orchestrator's worker to join the bus.
+ *
+ * On the calling thread instead — to measure against, to fall back to, to test:
+ *   import { inlineWorker } from '@palinc/nirnam/canvas';
+ *   <CanvasHost worker={() => inlineWorker(scope => createOrchestrator({ surfaces, scope }))} />
  */
 
 export { createOrchestrator } from './canvas/orchestrator';
@@ -22,6 +26,9 @@ export type { Orchestrator, OrchestratorOptions, OrchestratorScope, Orchestrator
 
 export { CanvasHostController } from './canvas/host';
 export type { HostDeps, HostOptions, SurfaceHandle, AttachOptions } from './canvas/host';
+
+export { inlineWorker } from './canvas/inline';
+export type { WorkerLike, InlineSetup } from './canvas/inline';
 
 export { layers } from './canvas/layers';
 export type { LayersOptions } from './canvas/layers';

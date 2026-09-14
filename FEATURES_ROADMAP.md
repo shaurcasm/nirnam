@@ -509,7 +509,7 @@ stats relayed to listeners, terminate disposes and seals both ends, the
 
 ## 12. `Examples/benchmark` — with Nirnam and without
 
-**Status:** in progress (2026-09-15).
+**Status:** complete (2026-09-15). `Examples/benchmark/README.md` explains the arms and columns; `RESULTS.md` holds recorded runs.
 
 **Purpose:** One page that runs the three use cases — micro-frontend
 transport, MCP, canvas — with Nirnam and with the plain alternative, same

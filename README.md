@@ -64,6 +64,7 @@ Examples/
   mcp-agent/               Document Q&A with MCP servers + Ollama (Rsbuild + MF)
   static-worker/           raw SharedWorker without MFEs (Vite)
   canvas/                  OffscreenCanvas surfaces on a dedicated worker, steered over the bus (Vite)
+  benchmark/               with Nirnam and without: transport, MCP and canvas, same workloads, plus effort (Vite)
   angular-react/           Angular host + React remote (planned)
 ```
 

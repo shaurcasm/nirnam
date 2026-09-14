@@ -12,14 +12,16 @@ import { createBus } from '@palinc/nirnam';
 import type { NirnamBus } from '@palinc/nirnam';
 import { NirnamMCPTransport } from '@palinc/nirnam/mcp';
 import type { McpArm } from '../arm';
+import { nextTask } from '../../harness/runner';
 
 async function untilServing(bus: NirnamBus): Promise<void> {
-  for (let attempt = 0; attempt < 200; attempt++) {
+  const deadline = performance.now() + 10000;
+  while (performance.now() < deadline) {
     try {
       await bus.request('bench:mcp:ready', null, 1000);
       return;
     } catch {
-      await new Promise(r => setTimeout(r, 25));
+      await nextTask();
     }
   }
   throw new Error('MCP worker never joined the bus');

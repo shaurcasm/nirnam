@@ -73,6 +73,36 @@ Main ↔ worker — 300 sequential requests answered in the worker
 | Raw postMessage worker | no | 7.20 | 41,667 | 0.00 | 0.10 | 0.40 |
 | Nirnam · worker participant | yes | 23.0 | 13,043 | 0.10 | 0.20 | 0.50 |
 
+#### Run 1b — same machine, same session, after the seventh arm and sixth workload were added
+
+Fan-out again, with the `shared` hub (a SharedWorker; on this desktop it
+did not fall back) and the worker arm now running two workers:
+
+| arm | Nirnam | wall | rate /s | latency p50 | p95 | max | main busy | busy / 1k |
+|---|---|---|---|---|---|---|---|---|
+| In-memory emitter | no | 8.00 | 2,000,000 | 0.00 | 0.00 | 0.20 | 11.8 | 0.74 |
+| window CustomEvent | no | 9.90 | 1,616,162 | 0.00 | 0.00 | 0.30 | 13.6 | 0.85 |
+| Raw postMessage worker | no | 16.0 | 1,000,000 | 7.60 | 11.2 | 11.7 | 7.30 | 0.46 |
+| Nirnam · inline hub | yes | 14.7 | 1,088,435 | 0.00 | 0.00 | 0.20 | 17.9 | 1.12 |
+| Nirnam · dedicated hub | yes | 24.2 | 661,157 | 13.3 | 16.3 | 16.7 | 9.90 | 0.62 |
+| Nirnam · shared hub | yes | 23.5 | 680,851 | 12.6 | 15.8 | 16.2 | 11.0 | 0.69 |
+| Nirnam · worker participants | yes | 23.0 | 695,652 | 12.0 | 12.4 | 12.5 | 14.0 | 0.87 |
+
+Worker → worker — 2,000 messages from one worker to another, the page not in the path
+
+| arm | Nirnam | wall | rate /s |
+|---|---|---|---|
+| Nirnam · worker participants | yes | 10.6 | 188,679 |
+| every other arm | | — no second worker | |
+
+Reading: the hub routes `a → b` and the main thread's whole part is one
+`done` message at the end. Nothing else on this page can do it: the raw
+arm would need the page to hand the two workers a `MessageChannel` and
+then stay out of the way — the same code again, one boundary further. The
+shared hub costs what the dedicated one does; its reach (every tab of the
+origin) is free on this desktop and absent on Chrome for Android, where
+the arm's label says it fell back.
+
 ### MCP
 
 echo — 300 sequential calls of a tool that does nothing

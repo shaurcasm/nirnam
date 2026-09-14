@@ -42,7 +42,25 @@ export interface RunOptions {
   settle?: () => Promise<void>;
 }
 
-const defaultSettle = () => new Promise<void>(resolve => setTimeout(resolve, 150));
+/**
+ * Yield to the event loop through a MessageChannel rather than a timer: a
+ * background tab clamps timers to a second, and to a minute after five
+ * minutes, while a posted message still lands as the next task.
+ */
+export const nextTask = (): Promise<void> =>
+  new Promise(resolve => {
+    const { port1, port2 } = new MessageChannel();
+    port1.onmessage = () => {
+      port1.close();
+      resolve();
+    };
+    port2.postMessage(null);
+  });
+
+/** Let queued deliveries and teardown land before the next run: a few hundred empty tasks. */
+const defaultSettle = async () => {
+  for (let i = 0; i < 200; i++) await nextTask();
+};
 
 export async function runCases(cases: Case[], options: RunOptions = {}): Promise<CaseResult[]> {
   const { reps = 3, warmup = 1, onProgress, signal, settle = defaultSettle } = options;
@@ -108,9 +126,6 @@ export async function measured(body: () => Promise<Metrics>): Promise<Metrics> {
     throw e;
   }
 }
-
-/** Yield to the event loop: lets queued messages land before the next step. */
-export const nextTask = () => new Promise<void>(resolve => setTimeout(resolve, 0));
 
 /** Hold the thread for `ms` milliseconds of real work — a stand-in for a tool that computes. */
 export function spin(ms: number): number {

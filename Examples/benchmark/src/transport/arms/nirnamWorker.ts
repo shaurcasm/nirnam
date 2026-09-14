@@ -13,15 +13,17 @@
 import { createBus } from '@palinc/nirnam';
 import type { NirnamBus } from '@palinc/nirnam';
 import type { TransportArm } from '../arm';
+import { nextTask } from '../../harness/runner';
 
 /** A worker's handlers are not there until it has joined; ask until it answers. */
 async function untilReady(bus: NirnamBus, name: string): Promise<void> {
-  for (let attempt = 0; attempt < 200; attempt++) {
+  const deadline = performance.now() + 10000;
+  while (performance.now() < deadline) {
     try {
       await bus.request(`bench:${name}:ready`, null, 1000);
       return;
     } catch {
-      await new Promise(r => setTimeout(r, 25));
+      await nextTask();
     }
   }
   throw new Error(`worker ${name} never joined the bus`);

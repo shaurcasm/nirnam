@@ -97,6 +97,24 @@ describe('layers', () => {
     expect(log.filter(l => l.includes('state'))).toEqual(['a:state:1', 'b:state:1', 'b:state:2', 'a:state:2']);
   });
 
+  it('files a cost a layer reports under the layer\'s name', () => {
+    const report = jest.fn();
+    const reporter: Surface = { attach: jest.fn(), frame: (_dt, input) => input.report?.('rebuild', 40) };
+    const composite = layers({ tree: () => reporter })();
+    composite.attach(canvas().canvas, size);
+
+    composite.frame(16, { ...input, report });
+    expect(report).toHaveBeenCalledWith('tree:rebuild', 40);
+
+    // An unnamed layer reports as itself; without a reporter nothing is called.
+    const anonymous = layers(() => reporter)();
+    anonymous.attach(canvas().canvas, size);
+    report.mockClear();
+    anonymous.frame(16, { ...input, report });
+    expect(report).toHaveBeenCalledWith('rebuild', 40);
+    expect(() => anonymous.frame(16, input)).not.toThrow();
+  });
+
   it('tolerates layers without the optional methods', () => {
     const minimal: Surface = { attach: jest.fn(), frame: jest.fn() };
     const composite = layers(() => minimal)();

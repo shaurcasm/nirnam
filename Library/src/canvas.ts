@@ -39,6 +39,7 @@ export type {
   SurfaceFactory,
   TierBudget,
   SurfaceStats,
+  SurfaceEvent,
   HostMessage,
   OrchestratorMessage,
 } from './canvas/types';

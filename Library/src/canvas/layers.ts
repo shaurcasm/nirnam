@@ -90,7 +90,11 @@ class Composite implements Surface<Record<string, unknown>> {
       this.ctx.setTransform(1, 0, 0, 1, 0, 0);
       this.ctx.clearRect(0, 0, this.size.width * this.size.dpr, this.size.height * this.size.dpr);
     }
-    this.layers.forEach(l => l.surface.frame(dt, input));
+    this.layers.forEach(l => {
+      // A cost a layer reports is filed under the layer's name.
+      const report = input.report && l.name !== null ? (name: string, ms: number) => input.report!(`${l.name}:${name}`, ms) : input.report;
+      l.surface.frame(dt, report === input.report ? input : { ...input, report });
+    });
   }
 
   onState(state: Record<string, unknown>): void {

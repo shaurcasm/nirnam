@@ -45,6 +45,15 @@ export interface FrameInput {
   size: SurfaceSize;
   /** Milliseconds since the loop started. */
   elapsed: number;
+  /**
+   * Tell the stats about a one-off cost — a cache repainted, a texture
+   * rebuilt — by name, with how long it took. Frame timing alone hides these:
+   * the frame that repaints is one long frame among sixty, and what it
+   * costs after — raster on the GPU the whole page waits for — is not on
+   * this thread at all. Reported costs come back in `SurfaceStats.events`.
+   * Absent when nothing is collecting.
+   */
+  report?: (name: string, ms: number) => void;
 }
 
 /**
@@ -75,6 +84,14 @@ export const DEFAULT_BUDGETS: Readonly<Record<Exclude<MotionTier, 'off'>, TierBu
   ambient: { targetFps: 30, maxDpr: 1.5 },
 };
 
+/** A one-off cost a surface reported through `FrameInput.report`, totalled over the interval. */
+export interface SurfaceEvent {
+  name: string;
+  count: number;
+  /** Total milliseconds across the interval's occurrences. */
+  ms: number;
+}
+
 /** Frame timing for one surface over the last stats interval. */
 export interface SurfaceStats {
   surfaceId: string;
@@ -84,6 +101,8 @@ export interface SurfaceStats {
   p95: number;
   /** Frames whose duration exceeded the tier's budget. */
   over: number;
+  /** Costs the surface reported, by name; empty when it reported none. */
+  events: SurfaceEvent[];
 }
 
 // ---- Protocol: host → orchestrator ------------------------------------------

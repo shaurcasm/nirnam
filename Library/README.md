@@ -364,7 +364,7 @@ Three tiers, probed at runtime: `full` (60 fps, pointer-reactive), `ambient` (30
 
 What it costs, and how to keep it small: the compositor pays **per canvas per frame**, however little was drawn, so put several things on one canvas with `layers({ sky: …, tree: …, leaves: … })` rather than one canvas each, and cap a full-viewport background with `useSurface(id, { maxDpr: 1 })` — nobody sees the second pixel. The loop stops when the page is hidden (worker `requestAnimationFrame` would not stop by itself in a background tab), when a surface scrolls out of view, and when nothing is attached.
 
-State is compared **by value** before it moves: the host does not send a state equal to the last one it sent, and `layers()` gives a layer its slice only when that slice changed — a surface cannot do this itself, since everything it receives is a structured clone and so a new object every time. A trigger that must fire on every send carries something that changes, such as a counter.
+State is compared **by value** before it moves: the host does not send a state equal to the last one it sent, and `layers()` gives a layer its slice only when that slice changed — a surface cannot do this itself, since everything it receives is a structured clone and so a new object every time. A trigger that must fire on every send carries something that changes, such as a counter. Frame timing misses one-off costs — the frame that repaints a cache is one long frame in sixty, and the GPU raster it causes is not on the worker at all — so a surface names them: `input.report('rebuild', ms)` inside `frame()`, and they come back totalled per name in `SurfaceStats.events`.
 
 Example: `Examples/canvas/`.
 

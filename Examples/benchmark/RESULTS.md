@@ -64,7 +64,8 @@ Worker → main — 2,000 messages published from the worker
 Reading: this is where the main thread is quiet — 0.2 ms busy for 2,000
 deliveries, against ~16 ms for the same count fanned out from main. The
 raw arm is faster on wall (one hop, no hub) and costs 145 lines to the
-Nirnam arm's 61, for one worker, with no streaming, tabs or discovery.
+Nirnam arm's 97 — which run two workers, stream, reach tabs, replay and
+discover, and can put the page out of the path entirely (run 1b).
 
 Main ↔ worker — 300 sequential requests answered in the worker
 
@@ -151,13 +152,13 @@ Not runnable from a hidden tab. Record below.
 | transport | In-memory emitter | 43 |
 | transport | window CustomEvent | 51 |
 | transport | Raw postMessage worker (+ its worker) | 145 |
-| transport | Nirnam, inline or dedicated | 28 |
-| transport | Nirnam worker participant (+ its worker) | 61 |
+| transport | Nirnam, inline, dedicated or shared | 34 |
+| transport | Nirnam worker participants (+ their worker, two of it) | 97 |
 | transport | *library the Nirnam arms lean on* | 757 in 5 files |
 | mcp | SDK InMemoryTransport | 28 |
 | mcp | Raw postMessage transport (+ its worker) | 86 |
 | mcp | Nirnam, server on main | 32 |
-| mcp | Nirnam, server in a worker (+ its worker) | 38 |
+| mcp | Nirnam, server in a worker (+ its worker) | 53 |
 | mcp | *library the Nirnam arms lean on* | `mcp.ts` |
 | canvas | Nirnam runtime, both arms | `arms.ts` + `orchestrator.ts` + `bench.worker.ts` |
 | canvas | *library the app would own without it* | host, orchestrator, layers, tier, inline, react binding |

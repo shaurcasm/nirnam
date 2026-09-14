@@ -1,3 +1,10 @@
+## [2.1.1](https://github.com/shaurcasm/nirnam/compare/v2.1.0...v2.1.1) (2026-09-14)
+
+
+### Bug Fixes
+
+* **canvas:** state by value between host and surfaces, and reported one-off costs in stats ([#3](https://github.com/shaurcasm/nirnam/issues/3)) ([7147beb](https://github.com/shaurcasm/nirnam/commit/7147beb0a7c63de7b8e4c9e128babbb2b58d4abd))
+
 # [2.1.0](https://github.com/shaurcasm/nirnam/compare/v2.0.0...v2.1.0) (2026-09-13)
 
 

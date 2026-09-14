@@ -8,7 +8,7 @@ repetitions after one warm-up. Milliseconds unless marked.
 
 - Machine: Windows 11, Intel Core Ultra 9 275HX (24 logical cores), 32 GB, RTX 5080; DPR 1.25
 - Browser: Chrome 153 (automation window, never in front)
-- Library: `@palinc/nirnam` at commit `d980152` + the `MCPBus` type fix
+- Library: `@palinc/nirnam` from `Library/` at commit `11a5507` (2.1.1 + `inlineWorker` + the `MCPBus` type fix)
 - **Because the tab was hidden**, loop lag, fps and long-frame columns read 0 and are omitted; the canvas tab could not run. Wall, latency and busy-time columns are event-driven and unaffected. A visible-tab run of the same build goes below when recorded.
 
 ### Transport

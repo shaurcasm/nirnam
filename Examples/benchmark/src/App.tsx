@@ -36,6 +36,15 @@ export default function App() {
     setTab(id);
     location.hash = id;
   };
+  // The hash is the tab, both ways: `#mcp` in the address bar switches too.
+  useEffect(() => {
+    const onHash = () => {
+      const id = location.hash.slice(1) as TabId;
+      if (TABS.some(t => t.id === id)) setTab(id);
+    };
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
   return (
     <div style={{ position: 'relative', zIndex: 1, padding: '16px 24px 40px' }}>
       <header style={{ display: 'flex', gap: 12, alignItems: 'baseline', marginBottom: 16, flexWrap: 'wrap' }}>

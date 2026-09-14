@@ -476,7 +476,7 @@ unit-tested (Jest runs in Node here).
 
 ## 11. `inlineWorker()` — the canvas runtime on the calling thread
 
-**Status:** complete (2026-09-15; ships with v2.2.0). `Examples/canvas` has a
+**Status:** complete (2026-09-15; branch `feat/canvas-inline-worker`, the release after 2.1.1). `Examples/canvas` has a
 *worker / main* toggle; `Examples/benchmark` (§12) is built on it.
 
 **Purpose:** A `Worker`-shaped object (`postMessage` with transfers,
@@ -514,7 +514,9 @@ stats relayed to listeners, terminate disposes and seals both ends, the
 **Purpose:** One page that runs the three use cases — micro-frontend
 transport, MCP, canvas — with Nirnam and with the plain alternative, same
 workload, and prints the numbers next to a development-effort comparison read
-from the arms' own source. Includes the arm where Nirnam is slower (pub/sub
+from the arms' own source. Transport has seven arms (three without Nirnam;
+inline, dedicated and shared hubs; two worker participants) over six
+workloads, the last of them worker → worker with the page out of the path. Includes the arm where Nirnam is slower (pub/sub
 between two main-thread MFEs against an in-memory emitter) on purpose: the
 main-thread win is wherever work leaves the main thread; elsewhere the win
 is reach and effort, and the page says which is which.

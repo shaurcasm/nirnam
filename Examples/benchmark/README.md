@@ -36,7 +36,7 @@ columns on the transport and MCP tabs are event-driven and survive it.
 
 ## Transport
 
-Six arms:
+Seven arms:
 
 | arm | Nirnam | what it stands for |
 |---|---|---|
@@ -45,12 +45,16 @@ Six arms:
 | Raw postMessage worker | no | a hub written by hand for one worker: envelope, correlation ids, timeouts |
 | Nirnam · inline hub | yes | the hub in this thread; zero hops |
 | Nirnam · dedicated hub | yes | the default: hub in a Worker, two hops per message |
-| Nirnam · worker participant | yes | dedicated hub + a worker on the bus via `adoptWorker` / `connectWorkerBus` |
+| Nirnam · shared hub | yes | the hub in a SharedWorker, every tab of the origin; falls back to dedicated where there is none and says so |
+| Nirnam · worker participants | yes | dedicated hub + two workers on the bus via `adoptWorker` / `connectWorkerBus` |
 
-Five workloads: fan-out (N messages × M subscribers), request-reply (K
-round trips), stream (S chunks), worker → main (the worker publishes N), and
-main ↔ worker (K requests answered in the worker). An arm that cannot do a
-workload says why in its row — that absence is a result.
+Six workloads: fan-out (N messages × M subscribers), request-reply (K round
+trips), stream (S chunks), worker → main (a worker publishes N), main ↔
+worker (K requests answered in a worker), and worker → worker (one worker
+publishes N, another receives them, the page hears one message at the end
+— the main thread is not in the path, which only a bus gives you without
+relaying every message yourself). An arm that cannot do a workload says why
+in its row — that absence is a result.
 
 Columns: `wall` (first publish to last delivery), `rate`, delivery `latency`
 p50/p95/max (send timestamp to handler; sub-0.1 ms on synchronous arms is

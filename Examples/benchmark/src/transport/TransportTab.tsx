@@ -11,7 +11,15 @@ import { nirnamWorkerArm } from './arms/nirnamWorker';
 import { rawPostMessageArm } from './arms/rawPostMessage';
 import { DEFAULT_TRANSPORT_PARAMS, TRANSPORT_WORKLOADS, type TransportParams } from './workloads';
 
-const ARMS: Array<() => TransportArm> = [emitterArm, customEventArm, rawPostMessageArm, () => nirnamArm('inline'), () => nirnamArm('dedicated'), nirnamWorkerArm];
+const ARMS: Array<() => TransportArm> = [
+  emitterArm,
+  customEventArm,
+  rawPostMessageArm,
+  () => nirnamArm('inline'),
+  () => nirnamArm('dedicated'),
+  () => nirnamArm('shared'),
+  nirnamWorkerArm,
+];
 
 function buildCases(params: TransportParams): Case[] {
   const cases: Case[] = [];
@@ -47,6 +55,8 @@ const NOTES: Record<string, string> = {
   stream: 'only arms with streaming',
   'worker-to-main': 'the worker publishes; the main thread pays for its subscriber and nothing else — compare busy time with fan-out',
   'worker-round-trip': 'same traffic pattern for both arms that can do it; the difference is in the effort tab',
+  'worker-to-worker':
+    "the hub routes a → b and the page hears one message, at the end; loop lag and fps are the main thread's whole involvement. The raw arm would need a MessageChannel relayed by the page — more of the same hand-rolling",
 };
 
 export function TransportTab() {
@@ -55,7 +65,7 @@ export function TransportTab() {
   return (
     <section>
       <p className="muted" style={{ maxWidth: 820 }}>
-        Six arms, five workloads. Three arms have no Nirnam in them. Where an arm cannot run a workload the row says why — that absence is a
+        Seven arms, six workloads. Three arms have no Nirnam in them. Where an arm cannot run a workload the row says why — that absence is a
         result too. Every run is warmed up once and repeated three times; the table is the median.
       </p>
       <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 12 }}>

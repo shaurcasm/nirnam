@@ -32,6 +32,12 @@ export interface TransportArm {
   workerPublish?(topic: string, count: number): Promise<void>;
   /** A round trip answered inside the arm's worker. */
   workerRequest?(payload: unknown): Promise<unknown>;
+  /**
+   * One worker publishes `count` messages on `topic`, another receives
+   * them; resolves when the receiver says it has them all. The main thread
+   * is not in the path.
+   */
+  workerToWorker?(topic: string, count: number): Promise<void>;
 }
 
 /** A transcript-sized payload, like the ones Wevaad's agents fan out. */

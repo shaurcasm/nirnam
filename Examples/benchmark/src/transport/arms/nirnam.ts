@@ -6,6 +6,9 @@
  *   task on the way out and a task on the way back, structured-cloned twice.
  *   That is the price of a hub that workers, iframes and other tabs can
  *   reach, and this arm shows what it is.
+ * - `shared`: the hub in a SharedWorker, one for every tab of the origin —
+ *   the same hops, possibly across processes. Falls back to `dedicated`
+ *   where SharedWorker is missing (Chrome on Android); the label says so.
  *
  * The bus is used exactly as an app would: defaults, BroadcastChannel on.
  */
@@ -14,7 +17,7 @@ import { createBus } from '@palinc/nirnam';
 import type { NirnamBus } from '@palinc/nirnam';
 import type { TransportArm } from '../arm';
 
-export function nirnamArm(hub: 'inline' | 'dedicated'): TransportArm {
+export function nirnamArm(hub: 'inline' | 'dedicated' | 'shared'): TransportArm {
   let bus: NirnamBus | null = null;
   const b = () => {
     if (!bus) throw new Error('arm not set up');
@@ -23,9 +26,15 @@ export function nirnamArm(hub: 'inline' | 'dedicated'): TransportArm {
   return {
     id: `nirnam-${hub}`,
     label: `Nirnam · ${hub} hub`,
-    note: hub === 'inline' ? 'hub in this thread · zero hops' : 'hub in a Worker · two hops, two clones · the default',
+    note:
+      hub === 'inline'
+        ? 'hub in this thread · zero hops'
+        : hub === 'shared'
+          ? 'hub in a SharedWorker · every tab of the origin · falls back to dedicated without one'
+          : 'hub in a Worker · two hops, two clones · the default',
     async setup() {
       bus = createBus({ hub });
+      if (bus.hub !== hub) this.label = `Nirnam · ${hub} hub (fell back to ${bus.hub})`;
     },
     async teardown() {
       bus?.close();

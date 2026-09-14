@@ -8,6 +8,9 @@
  * - stream: one stream of S chunks.
  * - worker → main: the arm's worker publishes N messages the page receives.
  * - worker round trip: K requests answered inside the worker.
+ * - worker → worker: one worker publishes N, another receives them, and the
+ *   main thread hears one message at the end. Only a bus can do this without
+ *   the page relaying every message itself.
  */
 
 import type { Metrics } from '../harness/stats';
@@ -181,4 +184,19 @@ const workerRoundTrip: TransportWorkload = {
   },
 };
 
-export const TRANSPORT_WORKLOADS: TransportWorkload[] = [fanout, requestReply, stream, workerToMain, workerRoundTrip];
+const workerToWorker: TransportWorkload = {
+  id: 'worker-to-worker',
+  label: 'Worker → worker',
+  describe: p => `${p.messages.toLocaleString('en-US')} messages from one worker to another, main not in the path`,
+  supports: arm => (arm.workerToWorker ? true : 'no second worker'),
+  async run(arm, { messages }) {
+    // The page subscribes to nothing on the topic: the hub routes a → b and
+    // the only main-thread task in the whole run is b saying it is done.
+    const start = performance.now();
+    await arm.workerToWorker!('bench:between-workers', messages);
+    const wall = performance.now() - start;
+    return { wall, throughput: messages / (wall / 1000) };
+  },
+};
+
+export const TRANSPORT_WORKLOADS: TransportWorkload[] = [fanout, requestReply, stream, workerToMain, workerRoundTrip, workerToWorker];

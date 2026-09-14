@@ -151,4 +151,4 @@ export function useSurface<State = unknown>(surfaceId: string, options: UseSurfa
   return React.useCallback((element: HTMLCanvasElement | null) => setCanvas(element), []);
 }
 
-export type { MotionTier, SurfaceStats } from './canvas/types';
+export type { MotionTier, SurfaceStats, SurfaceEvent } from './canvas/types';

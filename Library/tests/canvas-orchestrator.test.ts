@@ -356,8 +356,31 @@ describe('stats', () => {
     expect(onStats).toHaveBeenCalledTimes(1);
     const [stats, tier] = onStats.mock.calls[0];
     expect(tier).toBe('full');
-    expect(stats).toEqual([{ surfaceId: 'tree', frames: expect.any(Number), p50: 4, p95: 4, over: 0 }]);
+    expect(stats).toEqual([{ surfaceId: 'tree', frames: expect.any(Number), p50: 4, p95: 4, over: 0, events: [] }]);
     expect(scope.posted).toContainEqual({ type: 'canvas:stats', tier: 'full', stats });
+  });
+
+  it('totals the costs a surface reports, by name, and starts each interval afresh', () => {
+    make({ statsIntervalMs: 100 });
+    attach('tree');
+    const report = (name: string, ms: number) => tree.frames[tree.frames.length - 1].input.report?.(name, ms);
+
+    clock.tick(16);
+    report('rebuild', 40);
+    clock.tick(16);
+    report('rebuild', 50);
+    report('upload', 3);
+    for (let i = 0; i < 6; i++) clock.tick(16);
+
+    const first = (scope.posted[0] as { stats: Array<{ events: unknown }> }).stats[0];
+    expect(first.events).toEqual([
+      { name: 'rebuild', count: 2, ms: 90 },
+      { name: 'upload', count: 1, ms: 3 },
+    ]);
+
+    for (let i = 0; i < 7; i++) clock.tick(16);
+    const second = (scope.posted[1] as { stats: Array<{ events: unknown }> }).stats[0];
+    expect(second.events).toEqual([]);
   });
 
   it('counts frames over the tier budget', () => {

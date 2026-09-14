@@ -82,6 +82,39 @@ describe('layers', () => {
     expect(log.filter(l => l.includes('state'))).toEqual(['a:state:1', 'a:state:3', 'b:state:2']);
   });
 
+  it('gives a layer its slice only when the slice changed by value — a structured clone is not a change', () => {
+    const log: string[] = [];
+    const composite = layers({ a: () => spy('a', log), b: () => spy('b', log) })();
+    composite.attach(canvas().canvas, size);
+
+    composite.onState?.({ a: { n: 1 }, b: { n: 1 } });
+    // The whole state again, cloned: nobody hears anything.
+    composite.onState?.(structuredClone({ a: { n: 1 }, b: { n: 1 } }));
+    // Only b changed: a keeps quiet.
+    composite.onState?.({ a: { n: 1 }, b: { n: 2 } });
+    composite.onState?.({ a: { n: 2 } });
+
+    expect(log.filter(l => l.includes('state'))).toEqual(['a:state:1', 'b:state:1', 'b:state:2', 'a:state:2']);
+  });
+
+  it('files a cost a layer reports under the layer\'s name', () => {
+    const report = jest.fn();
+    const reporter: Surface = { attach: jest.fn(), frame: (_dt, input) => input.report?.('rebuild', 40) };
+    const composite = layers({ tree: () => reporter })();
+    composite.attach(canvas().canvas, size);
+
+    composite.frame(16, { ...input, report });
+    expect(report).toHaveBeenCalledWith('tree:rebuild', 40);
+
+    // An unnamed layer reports as itself; without a reporter nothing is called.
+    const anonymous = layers(() => reporter)();
+    anonymous.attach(canvas().canvas, size);
+    report.mockClear();
+    anonymous.frame(16, { ...input, report });
+    expect(report).toHaveBeenCalledWith('rebuild', 40);
+    expect(() => anonymous.frame(16, input)).not.toThrow();
+  });
+
   it('tolerates layers without the optional methods', () => {
     const minimal: Surface = { attach: jest.fn(), frame: jest.fn() };
     const composite = layers(() => minimal)();

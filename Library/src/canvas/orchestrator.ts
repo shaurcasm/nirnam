@@ -25,6 +25,7 @@ import type {
   SurfaceSize,
   SurfaceStats,
   TierBudget,
+  SurfaceEvent,
 } from './types';
 import { DEFAULT_BUDGETS } from './types';
 
@@ -79,6 +80,9 @@ interface Slot {
   visible: boolean;
   pointer: PointerSample | null;
   durations: number[];
+  /** Costs reported through `FrameInput.report` this interval, by name. */
+  events: Map<string, SurfaceEvent>;
+  report: (name: string, ms: number) => void;
 }
 
 function defaultScope(): OrchestratorScope {
@@ -192,6 +196,7 @@ export function createOrchestrator(options: OrchestratorOptions): Orchestrator {
           tier,
           size: slot.size,
           elapsed,
+          report: slot.report,
         };
         const before = clock.now();
         slot.surface.frame(dt, input);
@@ -218,8 +223,10 @@ export function createOrchestrator(options: OrchestratorOptions): Orchestrator {
         p50: percentile(sorted, 0.5),
         p95: percentile(sorted, 0.95),
         over: sorted.filter(d => d > limit).length,
+        events: [...slot.events.values()],
       });
       slot.durations = [];
+      slot.events = new Map();
     });
 
     scope.postMessage({ type: 'canvas:stats', tier, stats });
@@ -242,7 +249,21 @@ export function createOrchestrator(options: OrchestratorOptions): Orchestrator {
     const factory = surfaces[surfaceId];
     if (!factory) return;
     detach(surfaceId);
-    const slot: Slot = { surface: factory(), canvas, size, visible: true, pointer: null, durations: [] };
+    const slot: Slot = {
+      surface: factory(),
+      canvas,
+      size,
+      visible: true,
+      pointer: null,
+      durations: [],
+      events: new Map(),
+      report: (name, ms) => {
+        const event = slot.events.get(name) ?? { name, count: 0, ms: 0 };
+        event.count += 1;
+        event.ms += ms;
+        slot.events.set(name, event);
+      },
+    };
     slots.set(surfaceId, slot);
     slot.surface.attach(canvas, applySize(slot, size));
     reconcile();

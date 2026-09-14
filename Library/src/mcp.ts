@@ -46,9 +46,17 @@ export interface NirnamMCPTransportOptions {
    * Required for clients; optional for servers (falls back to sender of last received message).
    */
   targetAgentId?: string;
-  /** The Nirnam bus instance to use. */
-  bus: NirnamBus;
+  /**
+   * The bus to carry messages on — a page bus or a worker bus from
+   * `@palinc/nirnam/worker`. Structural on purpose: each subpath's type
+   * bundle carries its own `NirnamBus` declaration, and a class with
+   * private members is only assignable to itself.
+   */
+  bus: MCPBus;
 }
+
+/** What the transport needs from a bus. */
+export type MCPBus = Pick<NirnamBus, 'subscribe' | 'publish'>;
 
 /**
  * MCP-compatible Transport backed by the Nirnam SharedWorker bus.
@@ -61,7 +69,7 @@ export class NirnamMCPTransport {
 
   private readonly agentId: string;
   private readonly targetAgentId?: string;
-  private readonly bus: NirnamBus;
+  private readonly bus: MCPBus;
   private unsubscribe?: UnsubscribeFn;
   /** Last sender seen -- used as reply target when targetAgentId is not set (server mode). */
   private currentSender: string | null = null;

@@ -11,15 +11,25 @@
  * - Hide the tab: the frame counter stops — worker rAF would not stop by
  *   itself, the host tells the orchestrator the page is hidden.
  * - Watch the stats line: frames and p95, once a second.
+ * - Switch the thread: `main` runs the very same orchestrator and layers on
+ *   the main thread through `inlineWorker` — the control arm. Press a key in
+ *   the input while the field is busy and feel the difference.
  */
 
 import { useEffect, useMemo, useState } from 'react';
 import { createBus } from '@palinc/nirnam';
 import { CanvasHost, useSurface, useMotionTier } from '@palinc/nirnam/canvas/react';
-import { resolveMotionTier, probeMotionCapabilities } from '@palinc/nirnam/canvas';
+import { resolveMotionTier, probeMotionCapabilities, inlineWorker } from '@palinc/nirnam/canvas';
 import type { MotionTier, SurfaceStats, MotionPreference } from '@palinc/nirnam/canvas';
+import { setupOrchestrator } from './orchestrator';
 
 const bus = createBus();
+
+type Thread = 'worker' | 'main';
+const workers: Record<Thread, () => ReturnType<typeof inlineWorker>> = {
+  worker: () => new Worker(new URL('./dot.worker.ts', import.meta.url), { type: 'module' }),
+  main: () => inlineWorker(setupOrchestrator),
+};
 
 function BackgroundCanvas({ route }: { route: 'login' | 'home' }) {
   // State is routed to the layer it names. A full-viewport background does
@@ -47,6 +57,7 @@ function HomePage() {
 
 export default function App() {
   const [route, setRoute] = useState<'login' | 'home'>('login');
+  const [thread, setThread] = useState<Thread>('worker');
   const [preference, setPreference] = useState<MotionPreference>('auto');
   const [stats, setStats] = useState<SurfaceStats[]>([]);
   const [steppedDown, setSteppedDown] = useState<string | null>(null);
@@ -58,7 +69,8 @@ export default function App() {
 
   return (
     <CanvasHost
-      worker={() => new Worker(new URL('./dot.worker.ts', import.meta.url), { type: 'module' })}
+      key={thread}
+      worker={workers[thread]}
       tier={tier}
       bus={bus}
       onStats={setStats}
@@ -74,6 +86,10 @@ export default function App() {
             <button key={p} onClick={() => setPreference(p)} disabled={preference === p}>{p}</button>
           ))}
           <code>tier={tier}</code>
+          <span style={{ marginLeft: 12 }}>Thread:</span>
+          {(['worker', 'main'] as Thread[]).map(t => (
+            <button key={t} onClick={() => setThread(t)} disabled={thread === t}>{t}</button>
+          ))}
         </nav>
         {route === 'login' ? <LoginPage /> : <HomePage />}
         <footer style={{ padding: 16, fontSize: 12, color: '#94a3b8' }}>

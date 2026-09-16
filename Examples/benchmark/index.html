@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Nirnam — Benchmark</title>
+    <style>
+      html, body { margin: 0; height: 100%; font-family: system-ui, sans-serif; color: #e5e7eb; background: #0f172a; }
+      #root { position: relative; min-height: 100%; }
+      button { font: inherit; padding: 4px 10px; border-radius: 6px; border: 1px solid #334155; background: #1e293b; color: inherit; cursor: pointer; }
+      button:disabled { opacity: 0.5; cursor: default; }
+      button.primary { background: #0ea5e9; border-color: #0284c7; color: #0f172a; font-weight: 600; }
+      table { border-collapse: collapse; font-size: 13px; }
+      th, td { text-align: right; padding: 4px 10px; border-bottom: 1px solid #1e293b; white-space: nowrap; }
+      th:first-child, td:first-child { text-align: left; }
+      th { color: #94a3b8; font-weight: 500; }
+      code { color: #7dd3fc; }
+      input[type=range] { width: 160px; }
+      .muted { color: #94a3b8; }
+      .win { color: #34d399; }
+      .lose { color: #fbbf24; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

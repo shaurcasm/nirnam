@@ -297,7 +297,7 @@ export class NirnamBus {
    * message, which `connectWorkerBus()` from `@palinc/nirnam/worker` awaits.
    * `release()` the handle before terminating the worker.
    */
-  adoptWorker(worker: Worker): Adoption {
+  adoptWorker(worker: { postMessage(message: unknown, transfer: Transferable[]): void }): Adoption {
     const { port1, port2 } = new MessageChannel();
     const adoption = this.adoptPort(port1);
     worker.postMessage({ type: NIRNAM_CONNECT }, [port2]);

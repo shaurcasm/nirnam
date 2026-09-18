@@ -1,3 +1,10 @@
+# [2.2.0](https://github.com/shaurcasm/nirnam/compare/v2.1.1...v2.2.0) (2026-09-18)
+
+
+### Features
+
+* **canvas:** inlineWorker — the canvas runtime on the calling thread, behind a Worker's shape ([#4](https://github.com/shaurcasm/nirnam/issues/4)) ([020fd02](https://github.com/shaurcasm/nirnam/commit/020fd02059b5786fefc75f1351365a89324d8d2a))
+
 ## [2.1.1](https://github.com/shaurcasm/nirnam/compare/v2.1.0...v2.1.1) (2026-09-14)
 
 
